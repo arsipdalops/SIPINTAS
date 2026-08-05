@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>SIPINTAS | Dishub Kota Malang</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div class="top-strip"></div>
+
+  <header class="site-header" id="beranda">
+    <nav class="navbar">
+      <a href="#beranda" class="brand" aria-label="Beranda SIPINTAS">
+        <div class="brand-logos">
+          <img src="assets/malang.png" alt="Logo Kota Malang" />
+          <img src="assets/dishub.jpg" alt="Logo Dinas Perhubungan Kota Malang" />
+           <img src="assets/dismal.jpeg" alt="Logo Dinas Perhubungan Kota Malang" />
+        </div>
+        <div class="brand-text">
+          <strong>SIPINTAS</strong>
+          <small>Dishub Kota Malang</small>
+        </div>
+      </a>
+
+      <button class="nav-toggle" id="navToggle" type="button" aria-label="Buka menu">
+        <span></span><span></span><span></span>
+      </button>
+
+      <div class="nav-menu" id="navMenu">
+        <a href="#alur">Alur</a>
+        <a href="#peran">Peran Dishub</a>
+        <a href="#pengajuan">Pengajuan</a>
+        <a href="#admin">Admin</a>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-content">
+        <p class="badge">Sistem Informasi Pertimbangan Izin Penggunaan Jalan Selain Kegiatan Lalu Lintas di Jalan</p>
+        <h1>Layanan Pemrosesan Pertimbangan Izin</h1>
+        <p class="hero-lead">
+          SIPINTAS merupakan layanan sistem digital dari Dinas Perhubungan Kota Malang untuk pemrosesan pertimbangan izin penggunaan jalan selain kegiatan lalu lintas di jalan.
+        </p>
+
+        <div class="hero-warning">
+          <strong>Catatan kewenangan:</strong>
+          SIPINTAS hanya diperuntukkan sebagai penerbit pertimbangan izin sesuai tugas dan fungsi dinas perhubungan.
+        </div>
+
+        <div class="hero-actions">
+          <a href="#pengajuan" class="btn btn-primary">Ajukan Pertimbangan Teknis</a>
+          <a href="#alur" class="btn btn-ghost">Lihat Alur Perizinan</a>
+        </div>
+      </div>
+
+
+      <div class="hero-video">
+      <video autoplay muted loop controls playsinline preload="auto">
+          <source src="assets/tutor.mp4" type="video/mp4" />
+          
+        </video>
+      </div>
+    </section>
+  </header>
+
+  <main>
+    <section class="section alur-section" id="alur">
+      <div class="section-title">
+        <p class="badge dark">Alur Perizinan Kegiatan</p>
+       
+        <p>
+          Bagian ini menjelaskan posisi Dishub sebagai pemberi pertimbangan teknis,
+          sedangkan izin penyelenggaraan dan izin keramaian diproses oleh instansi berwenang.
+        </p>
+
+      </div>
+
+      <details class="reference-image">
+        <summary>Lihat gambar alur lampiran</summary>
+        <img src="assets/alur.png" alt="Alur perizinan kegiatan lampiran" />
+      </details>
+    </section>
+
+    <section class="section role-section" id="peran">
+      <div class="role-card">
+        <p class="badge dark">Peran Dishub</p>
+        <h2>Pertimbangan izin, bukan penerbit izin kegiatan.</h2>
+        <p>
+          Dishub menilai aspek teknis lalu lintas, penggunaan ruas jalan, dampak terhadap arus kendaraan,
+          kebutuhan rekayasa lalu lintas, serta penataan parkir. Status yang diberikan admin bersifat
+          pertimbangan izin untuk membantu proses lanjutan pemohon.
+        </p>
+      </div>
+
+      <div class="role-points">
+        <article><strong>Input Digital</strong><span>Data pemohon, kegiatan, jadwal, lokasi, dan ruas jalan.</span></article>
+        <article><strong>Arsip Rapi</strong><span>Semua pengajuan otomatis tersimpan di Google Sheets.</span></article>
+        <article><strong>Verifikasi Teknis</strong><span>Admin melihat detail pengajuan dan peta ruas merah.</span></article>
+        <article><strong>Notifikasi Email</strong><span>Pemohon dan admin menerima pemberitahuan otomatis.</span></article>
+      </div>
+    </section>
+
+    <section class="section submit-section" id="pengajuan">
+      <div class="form-panel">
+        <div class="panel-title">
+          <p class="badge dark">Form Pengajuan</p>
+          <h2>Data Pemohon dan Kegiatan</h2>
+          <p>Gunakan format jam 24 jam, misalnya 08.30 atau 19.00.</p>
+        </div>
+
+        <form id="applicationForm" class="form" enctype="multipart/form-data">
+          <div class="grid two">
+            <label>Nama Lengkap
+              <input id="nama" type="text" placeholder="Nama sesuai identitas" required />
+            </label>
+            <label>NIK
+              <input id="nik" type="text" maxlength="16" inputmode="numeric" placeholder="16 digit NIK" required />
+            </label>
+          </div>
+
+          <div class="grid two">
+            <label>Email Pemohon
+              <input id="email" type="email" placeholder="nama@email.com" required />
+            </label>
+            <label>Nomor HP / WhatsApp
+              <input id="noHp" type="tel" placeholder="08xxxxxxxxxx" required />
+            </label>
+          </div>
+
+          <label>Alamat Pemohon
+            <input id="alamat" type="text" placeholder="Alamat lengkap pemohon" required />
+          </label>
+
+          <label>Nama Kegiatan
+            <input id="namaKegiatan" type="text" placeholder="Contoh: Kirab budaya / event warga" required />
+          </label>
+            
+          <div class="grid two">
+            <label>Tanggal Kegiatan
+              <input id="tanggal" type="date" required />
+            </label>
+            <label>Estimasi Peserta
+              <input id="estimasiPeserta" type="number" min="1" placeholder="100" required />
+            </label>
+          </div>
+
+          <div class="grid two">
+            <label>Jam Mulai
+              <input id="jamMulai" type="text" maxlength="5" inputmode="numeric" placeholder="19.00" required />
+            </label>
+            <label>Jam Selesai
+              <input id="jamSelesai" type="text" maxlength="5" inputmode="numeric" placeholder="21.00" required />
+            </label>
+          </div>
+
+          <label>Lokasi / Patokan Ruas Jalan
+            <input id="lokasiPatokan" type="text" placeholder="Contoh: depan Balai Kota sampai simpang Rajabali" required />
+          </label>
+
+          <label class="agreement">
+            <input id="persetujuanTembusan" type="checkbox" required />
+            <span>Saya sudah mengajukan data ke Disnaker PMPTSP Kota Malang dan mendapat surat tembusan.</span>
+          </label>
+
+          <fieldset class="upload-dokumen">
+            <legend>Unggah Berkas Pengajuan</legend>
+            <p class="upload-help">
+              Gabungkan surat tembusan Disnaker PMPTSP, KTP, proposal kegiatan, surat pernyataan kesanggupan,
+              dan surat persetujuan lokasi kegiatan dalam satu dokumen.
+            </p>
+            <label for="dokumenPengajuan">Pilih dokumen</label>
+            <input
+              type="file"
+              id="dokumenPengajuan"
+              name="dokumenPengajuan"
+              accept=".pdf,.doc,.docx"
+              required
+            />
+            <p class="upload-note">Format yang diterima: PDF, DOC, atau DOCX.</p>
+          </fieldset>
+
+          <input id="koordinatRuas" type="hidden" />
+          <input id="titikAwal" type="hidden" />
+          <input id="titikAkhir" type="hidden" />
+          <input id="panjangMeter" type="hidden" />
+          <input id="panjangKm" type="hidden" />
+
+          <div class="map-summary">
+            <div>
+              <strong>Status Peta</strong>
+              <p id="drawingStatus">Belum ada ruas jalan yang ditandai.</p>
+            </div>
+            <a href="#peta" class="small-btn">Tandai Ruas Jalan</a>
+          </div>
+
+          <label class="agreement">
+            <input id="persetujuan" type="checkbox" required />
+            <span>Saya menyatakan data yang diisi benar dan memahami bahwa pengajuan ini adalah permohonan pertimbangan teknis, bukan izin final kegiatan.</span>
+          </label>
+
+          <div id="formMessage" class="form-message"></div>
+
+          <button id="submitBtn" class="btn btn-primary full" type="submit">Kirim Pengajuan Pertimbangan Teknis</button>
+        </form>
+      </div>
+
+      <aside class="map-panel" id="peta">
+        <div class="map-head">
+          <div>
+            <p class="badge dark">Peta Ruas Jalan</p>
+            <h2>Gambar ruas jalan yang terdampak.</h2>
+            <p>Klik ikon garis pada peta, pilih titik mengikuti ruas jalan, lalu klik dua kali untuk selesai.</p>
+          </div>
+          <div class="map-actions">
+            <button id="focusMalangBtn" type="button">Fokus Malang</button>
+            <button id="clearMapBtn" type="button">Hapus Garis</button>
+          </div>
+        </div>
+
+        <div class="map-steps">
+          <span>1. Klik tool garis</span>
+          <span>2. Gambar ruas</span>
+          <span>3. Garis merah tersimpan</span>
+        </div>
+
+        <div id="map"></div>
+
+        <div class="map-foot">
+          <div>
+            <strong>Ruas Ditandai</strong>
+            <p id="mapInfo">Belum ada ruas jalan yang digambar.</p>
+          </div>
+          <div class="legend"><i></i> Garis merah = ruas terdampak</div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="section admin-section" id="admin">
+      <div class="admin-shell">
+        <div class="admin-login" id="adminLoginBox">
+          <p class="badge dark">Admin Dishub</p>
+          <h2>Login Dashboard Admin</h2>
+          <p>Dashboard admin membaca data langsung dari Google Sheets melalui Apps Script. Spreadsheet tidak perlu dibuka manual.</p>
+
+          <form id="adminLoginForm" class="admin-form">
+            <label>Username
+              <input id="adminUsername" type="text" placeholder="admin" autocomplete="username" required />
+            </label>
+            <label>Password
+              <input id="adminPassword" type="password" placeholder="Password admin" autocomplete="current-password" required />
+            </label>
+            <div id="adminLoginMessage" class="form-message"></div>
+            <button class="btn btn-primary full" type="submit">Masuk Admin</button>
+          </form>
+        </div>
+
+        <div class="admin-dashboard hidden" id="adminDashboard">
+          <div class="admin-topbar">
+            <div>
+              <p class="badge dark">Dashboard Pengajuan</p>
+              <h2>Data Pemohon dan Pertimbangan Izin</h2>
+            </div>
+            <div class="admin-actions">
+              <button id="refreshAdminBtn" type="button">Refresh Data</button>
+              <button id="logoutAdminBtn" type="button">Logout</button>
+            </div>
+          </div>
+
+          <div class="admin-kpis">
+            <article><span>Total</span><strong id="kpiTotal">0</strong></article>
+            <article><span>Proses</span><strong id="kpiProcess">0</strong></article>
+            <article><span>Dapat Diterbitkan Pertimbangan Izin</span><strong id="kpiRecommended">0</strong></article>
+            <article><span>Pertimbangan Izin Tidak Dapat Diterbitkan</span><strong id="kpiRevision">0</strong></article>
+          </div>
+
+          <div class="table-tools">
+            <input id="adminSearch" type="search" placeholder="Cari nama, ID, kegiatan, lokasi..." />
+            <select id="statusFilter">
+              <option value="">Semua status</option>
+              <option>Sedang Diverifikasi</option>
+              <option>Pertimbangan Izin dapat diterbitkan</option>
+              <option>Pertimbangan Izin tidak dapat diterbitkan</option>              
+            </select>
+          </div>
+
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Status</th>
+                  <th>Pemohon</th>
+                  <th>Kegiatan</th>
+                  <th>Tanggal</th>
+                  <th>Lokasi</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="adminTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="detail-panel hidden" id="detailPanel">
+            <div class="detail-head">
+              <div>
+                <p class="badge dark">Detail Pengajuan</p>
+                <h3 id="detailTitle">-</h3>
+              </div>
+              <button id="closeDetailBtn" type="button">Tutup</button>
+            </div>
+
+            <div class="detail-grid">
+              <div class="detail-card">
+                <h4>Data Pemohon</h4>
+                <div id="pemohonDetail"></div>
+              </div>
+              <div class="detail-card">
+                <h4>Data Kegiatan</h4>
+                <div id="kegiatanDetail"></div>
+              </div>
+            </div>
+
+            <div class="detail-map-card">
+              <h4>Gambar Ruas Jalan dari Pelapor</h4>
+              <div id="adminMap"></div>
+            </div>
+
+            <form id="statusForm" class="status-form">
+              <div class="grid two">
+                <label>Status Proses
+                  <select id="updateStatus" required>
+                    <option>Sedang Diverifikasi</option>
+                    <option>Pertimbangan Izin dapat diterbitkan</option>
+                    <option>Pertimbangan Izin tidak dapat diterbitkan</option>
+                    <option>Selesai</option>
+                  </select>
+                </label>
+
+                <label>Catatan Admin
+                  <textarea
+                    id="adminNote"
+                    rows="4"
+                    placeholder="Tulis hasil verifikasi atau catatan untuk pemohon"
+                  ></textarea>
+                </label>
+              </div>
+
+              <fieldset class="upload-dokumen">
+                <legend>Unggah Surat Pertimbangan Izin</legend>
+                <p class="upload-help">
+                  Lampirkan surat ketika pertimbangan izin dapat diterbitkan. Untuk status verifikasi, berkas ini boleh dikosongkan.
+                </p>
+                <label for="suratPertimbangan">Pilih dokumen</label>
+                <input
+                  type="file"
+                  id="suratPertimbangan"
+                  name="suratPertimbangan"
+                  accept=".pdf,.doc,.docx"
+                />
+                <p class="upload-note">Format yang diterima: PDF, DOC, atau DOCX. Maksimal 8 MB.</p>
+              </fieldset>
+
+              <div id="statusMessage" class="form-message"></div>
+              <div class="status-actions">
+                <button id="statusSubmitBtn" class="btn btn-primary" type="submit">Update Status & Kirim Email</button>
+                <button class="btn btn-light" type="button" id="printDetailBtn">Cetak Detail</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>© <span id="year"></span> SIPINTAS — Dinas Perhubungan Kota Malang</p>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
