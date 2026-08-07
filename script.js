@@ -5,7 +5,7 @@
 (() => {
   "use strict";
 
-  const API_URL = "https://script.google.com/macros/s/AKfycbxNMDRFzoZMuJzrjx9QAjM3WrNqtSYxglm_-1pgQosw6rzpmsByuXJvPiuazmWPDzk4/exec";
+  const API_URL = "https://script.google.com/macros/s/AKfycbwyvni_bpU0x1ocK9JhS1jBIZIQE3x0w8-A-9P1GejcyzJReNJyhDvejTPwyEhQysP8/exec";
   const MALANG_CENTER = [-7.96662, 112.632632];
   const ADMIN_TOKEN_KEY = "sipintas_admin_token";
   const MAX_FILE_SIZE = 8 * 1024 * 1024;

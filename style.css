@@ -1387,9 +1387,38 @@ input[type="file"]::file-selector-button {
   min-height: 124px;
 }
 
-.detail-list a {
-  color: var(--blue-600);
-  font-weight: 800;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.btn-primary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 90px;
+    padding: 0 40px;
+
+    border-radius: 999px;
+
+    background: linear-gradient(
+        90deg,
+        #FFD84D 0%,
+        #FFE77A 55%,
+        #FFF0A6 100%
+    );
+
+    color: #082044;
+
+    font-size: 28px;
+    font-weight: 800;
+
+    text-decoration: none;
+    text-align: center;
+
+    border: none;
+    cursor: pointer;
+
+    transition: 0.3s ease;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(255, 216, 77, 0.25);
 }
