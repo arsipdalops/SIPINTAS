@@ -126,57 +126,57 @@
           <p>Gunakan format jam 24 jam, misalnya 08.30 atau 19.00.</p>
         </div>
 
-        <form id="applicationForm" class="form" enctype="multipart/form-data">
+        <form id="applicationForm" class="form" enctype="multipart/form-data" novalidate>
           <div class="grid two">
             <label>Nama Lengkap
-              <input id="nama" type="text" placeholder="Nama sesuai identitas" required />
+              <input id="nama" type="text" placeholder="Nama sesuai identitas" />
             </label>
             <label>NIK
-              <input id="nik" type="text" maxlength="16" inputmode="numeric" placeholder="16 digit NIK" required />
+              <input id="nik" type="text" maxlength="16" inputmode="numeric" placeholder="16 digit NIK" />
             </label>
           </div>
 
           <div class="grid two">
             <label>Email Pemohon
-              <input id="email" type="email" placeholder="nama@email.com" required />
+              <input id="email" type="email" placeholder="nama@email.com" />
             </label>
             <label>Nomor HP / WhatsApp
-              <input id="noHp" type="tel" placeholder="08xxxxxxxxxx" required />
+              <input id="noHp" type="tel" placeholder="08xxxxxxxxxx" />
             </label>
           </div>
 
           <label>Alamat Pemohon
-            <input id="alamat" type="text" placeholder="Alamat lengkap pemohon" required />
+            <input id="alamat" type="text" placeholder="Alamat lengkap pemohon" />
           </label>
 
           <label>Nama Kegiatan
-            <input id="namaKegiatan" type="text" placeholder="Contoh: Kirab budaya / event warga" required />
+            <input id="namaKegiatan" type="text" placeholder="Contoh: Kirab budaya / event warga" />
           </label>
             
           <div class="grid two">
             <label>Tanggal Kegiatan
-              <input id="tanggal" type="date" required />
+              <input id="tanggal" type="date" />
             </label>
             <label>Estimasi Peserta
-              <input id="estimasiPeserta" type="number" min="1" placeholder="100" required />
+              <input id="estimasiPeserta" type="number" min="1" placeholder="100" />
             </label>
           </div>
 
           <div class="grid two">
             <label>Jam Mulai
-              <input id="jamMulai" type="text" maxlength="5" inputmode="numeric" placeholder="19.00" required />
+              <input id="jamMulai" type="text" maxlength="5" inputmode="numeric" placeholder="19.00" />
             </label>
             <label>Jam Selesai
-              <input id="jamSelesai" type="text" maxlength="5" inputmode="numeric" placeholder="21.00" required />
+              <input id="jamSelesai" type="text" maxlength="5" inputmode="numeric" placeholder="21.00" />
             </label>
           </div>
 
           <label>Lokasi / Patokan Ruas Jalan
-            <input id="lokasiPatokan" type="text" placeholder="Contoh: depan Balai Kota sampai simpang Rajabali" required />
+            <input id="lokasiPatokan" type="text" placeholder="Contoh: depan Balai Kota sampai simpang Rajabali" />
           </label>
 
           <label class="agreement">
-            <input id="persetujuanTembusan" type="checkbox" required />
+            <input id="persetujuanTembusan" type="checkbox" />
             <span>Saya sudah mengajukan data ke Disnaker PMPTSP Kota Malang dan mendapat surat tembusan.</span>
           </label>
 
@@ -186,13 +186,12 @@
               Gabungkan surat tembusan Disnaker PMPTSP, KTP, proposal kegiatan, surat pernyataan kesanggupan,
               dan surat persetujuan lokasi kegiatan dalam satu dokumen.
             </p>
-            <label for="dokumenPengajuan">Pilih dokumen</label>
+            <label for="dokumenPengajuan">Pilih dokumen (opsional)</label>
             <input
               type="file"
               id="dokumenPengajuan"
               name="dokumenPengajuan"
               accept=".pdf,.doc,.docx"
-              required
             />
             <p class="upload-note">Format yang diterima: PDF, DOC, atau DOCX.</p>
           </fieldset>
@@ -212,7 +211,7 @@
           </div>
 
           <label class="agreement">
-            <input id="persetujuan" type="checkbox" required />
+            <input id="persetujuan" type="checkbox" />
             <span>Saya menyatakan data yang diisi benar dan memahami bahwa pengajuan ini adalah permohonan pertimbangan teknis, bukan izin final kegiatan.</span>
           </label>
 
@@ -343,7 +342,7 @@
               <div id="adminMap"></div>
             </div>
 
-            <form id="statusForm" class="status-form"novalidate>
+            <form id="statusForm" class="status-form" >
               <div class="grid two">
                 <label>Status Proses
                   <select id="updateStatus" required>

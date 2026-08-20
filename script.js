@@ -313,7 +313,7 @@
     const documentInput = byId("dokumenPengajuan");
     if (documentInput) {
       documentInput.addEventListener("change", () => {
-        const error = validateFile(documentInput.files[0]);
+        const error = validateFile(documentInput.files[0], false);
         documentInput.setCustomValidity(error);
         if (error) documentInput.reportValidity();
       });
@@ -330,8 +330,6 @@
     const formMessage = byId("formMessage");
     clearMessage(formMessage);
     updateDrawingData();
-
-    if (!form.reportValidity()) return;
 
     const payload = buildApplicationPayload();
     const documentFile = getSelectedFile("dokumenPengajuan");
@@ -402,54 +400,42 @@
   }
 
   function validateApplicationPayload(payload, documentFile) {
-   function validateForm(payload) {
+    // Semua field boleh kosong.
+    // Jika field tertentu diisi, formatnya tetap diperiksa.
 
-  // Jika NIK diisi, harus 16 digit.
-  // Jika kosong, tetap boleh dikirim.
-  if (payload.nik && !/^\d{16}$/.test(payload.nik)) {
-    return "Jika NIK diisi, NIK harus berisi tepat 16 digit angka.";
-  }
-
-  // Jika email diisi, formatnya harus benar.
-  // Jika kosong, tetap boleh dikirim.
-  if (
-    payload.email &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)
-  ) {
-    return "Format email pemohon tidak valid.";
-  }
-
-  // Jika jam mulai diisi, format harus benar
-  if (payload.jamMulai && !isValidJam24(payload.jamMulai)) {
-    return "Format jam mulai tidak valid. Gunakan format 24 jam, contoh 19.00";
-  }
-
-  // Jika jam selesai diisi, format harus benar
-  if (payload.jamSelesai && !isValidJam24(payload.jamSelesai)) {
-    return "Format jam selesai tidak valid. Gunakan format 24 jam, contoh 21.30";
-  }
-
-  // Cek urutan tanggal/jam hanya jika semuanya diisi
-  if (
-    payload.tanggalMulai &&
-    payload.jamMulai &&
-    payload.tanggalSelesai &&
-    payload.jamSelesai
-  ) {
-    if (
-      !isEndAfterStart(
-        payload.tanggalMulai,
-        payload.jamMulai,
-        payload.tanggalSelesai,
-        payload.jamSelesai
-      )
-    ) {
-      return "Tanggal/jam selesai harus lebih besar daripada tanggal/jam mulai.";
+    if (payload.nik && !/^\d{16}$/.test(payload.nik)) {
+      return "Jika NIK diisi, NIK harus berisi tepat 16 digit angka.";
     }
-  }
 
-  return "";
-}
+    if (
+      payload.email &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)
+    ) {
+      return "Jika email diisi, format email pemohon harus valid.";
+    }
+
+    if (payload.jamMulai && !isValidTime24(payload.jamMulai)) {
+      return "Jika jam mulai diisi, gunakan format 24 jam, contoh 19.00.";
+    }
+
+    if (payload.jamSelesai && !isValidTime24(payload.jamSelesai)) {
+      return "Jika jam selesai diisi, gunakan format 24 jam, contoh 21.00.";
+    }
+
+    if (
+      payload.jamMulai &&
+      payload.jamSelesai &&
+      isValidTime24(payload.jamMulai) &&
+      isValidTime24(payload.jamSelesai) &&
+      timeToMinutes(payload.jamSelesai) <= timeToMinutes(payload.jamMulai)
+    ) {
+      return "Jika kedua jam diisi, jam selesai harus lebih besar daripada jam mulai.";
+    }
+
+    const fileError = validateFile(documentFile, false);
+    if (fileError) return fileError;
+
+    return "";
   }
 
   /* ========================================================
@@ -857,6 +843,8 @@
   }
 
   function fileToPayload(file) {
+    if (!file) return Promise.resolve(null);
+
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
