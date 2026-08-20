@@ -7,7 +7,7 @@
 "use strict";
 
 const API_URL =
-  "https://script.google.com/macros/s/AKfycbwyvni_bpU0x1ocK9JhS1jBIZIQE3x0w8-A-9P1GejcyzJReNJyhDvejTPwyEhQysP8/exec";
+  "https://script.google.com/macros/s/AKfycbwL3hQtC0kpRJCbLyX495grv-e3uHWgQcd9qzYtdvB9fdB8ifPMucJ1L8nehxmfUhTH/exec";
 
 const MAX_FILE_SIZE = 8 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx"];
