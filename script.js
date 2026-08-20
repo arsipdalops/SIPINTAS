@@ -402,27 +402,54 @@
   }
 
   function validateApplicationPayload(payload, documentFile) {
-    if (!payload.nama) return "Nama lengkap wajib diisi.";
-    if (!/^\d{16}$/.test(payload.nik)) return "NIK harus berisi tepat 16 digit angka.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) return "Format email tidak valid.";
-    if (!/^(\+62|62|0)\d{8,13}$/.test(payload.noHp)) return "Nomor HP tidak valid. Gunakan format 08..., 62..., atau +62...";
-    if (!payload.alamat) return "Alamat pemohon wajib diisi.";
-    if (!payload.namaKegiatan) return "Nama kegiatan wajib diisi.";
-    if (!payload.tanggal) return "Tanggal kegiatan wajib diisi.";
-    if (!payload.estimasiPeserta || Number(payload.estimasiPeserta) <= 0) return "Estimasi peserta harus lebih dari 0.";
-    if (!isValidTime24(payload.jamMulai)) return "Format jam mulai tidak valid. Gunakan contoh 19.00.";
-    if (!isValidTime24(payload.jamSelesai)) return "Format jam selesai tidak valid. Gunakan contoh 21.00.";
-    if (timeToMinutes(payload.jamSelesai) <= timeToMinutes(payload.jamMulai)) return "Jam selesai harus lebih besar daripada jam mulai.";
-    if (!payload.lokasiPatokan) return "Lokasi atau patokan ruas jalan wajib diisi.";
-    if (!payload.persetujuanTembusan) return "Konfirmasi surat tembusan wajib dicentang.";
-    if (!documentFile) return "Berkas pengajuan wajib dipilih.";
+   function validateForm(payload) {
 
-    const fileError = validateFile(documentFile);
-    if (fileError) return fileError;
+  // Jika NIK diisi, harus 16 digit.
+  // Jika kosong, tetap boleh dikirim.
+  if (payload.nik && !/^\d{16}$/.test(payload.nik)) {
+    return "Jika NIK diisi, NIK harus berisi tepat 16 digit angka.";
+  }
 
-    if (!payload.koordinatRuas) return "Silakan gambar ruas jalan pada peta terlebih dahulu.";
-    if (!payload.persetujuan) return "Pernyataan kebenaran data wajib dicentang.";
-    return "";
+  // Jika email diisi, formatnya harus benar.
+  // Jika kosong, tetap boleh dikirim.
+  if (
+    payload.email &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)
+  ) {
+    return "Format email pemohon tidak valid.";
+  }
+
+  // Jika jam mulai diisi, format harus benar
+  if (payload.jamMulai && !isValidJam24(payload.jamMulai)) {
+    return "Format jam mulai tidak valid. Gunakan format 24 jam, contoh 19.00";
+  }
+
+  // Jika jam selesai diisi, format harus benar
+  if (payload.jamSelesai && !isValidJam24(payload.jamSelesai)) {
+    return "Format jam selesai tidak valid. Gunakan format 24 jam, contoh 21.30";
+  }
+
+  // Cek urutan tanggal/jam hanya jika semuanya diisi
+  if (
+    payload.tanggalMulai &&
+    payload.jamMulai &&
+    payload.tanggalSelesai &&
+    payload.jamSelesai
+  ) {
+    if (
+      !isEndAfterStart(
+        payload.tanggalMulai,
+        payload.jamMulai,
+        payload.tanggalSelesai,
+        payload.jamSelesai
+      )
+    ) {
+      return "Tanggal/jam selesai harus lebih besar daripada tanggal/jam mulai.";
+    }
+  }
+
+  return "";
+}
   }
 
   /* ========================================================
