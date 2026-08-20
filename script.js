@@ -320,8 +320,8 @@ function initApplicationForm() {
     try {
       setButtonLoading(submitButton, true, "Mengirim pengajuan...");
 
-      const file = $("dokumenPengajuan").files[0];
-      const filePayload = await fileToPayload(file);
+      const file = $("dokumenPengajuan")?.files?.[0] || null;
+      const filePayload = file ? await fileToPayload(file) : null;
       const payload = collectApplicationPayload();
 
       const result = await postJson({
@@ -388,50 +388,48 @@ function validateApplicationForm() {
   const jamMulai = normalizeTimeInput(valueOf("jamMulai"));
   const jamSelesai = normalizeTimeInput(valueOf("jamSelesai"));
   const coordinatesRaw = valueOf("koordinatRuas");
-  const file = $("dokumenPengajuan")?.files?.[0];
+  const file = $("dokumenPengajuan")?.files?.[0] || null;
 
-  if (!/^\d{16}$/.test(nik)) {
-    return { valid: false, message: "NIK harus terdiri dari 16 digit angka.", elementId: "nik" };
+  // Semua field boleh kosong.
+  // Jika field diisi, formatnya tetap diperiksa.
+  if (nik && !/^\d{16}$/.test(nik)) {
+    return { valid: false, message: "Jika NIK diisi, NIK harus terdiri dari 16 digit angka.", elementId: "nik" };
   }
 
-  if (!/^(\+62|62|0)\d{8,13}$/.test(noHp)) {
-    return { valid: false, message: "Nomor HP / WhatsApp tidak valid.", elementId: "noHp" };
+  if (noHp && !/^(\+62|62|0)\d{8,13}$/.test(noHp)) {
+    return { valid: false, message: "Jika nomor HP diisi, format nomor HP / WhatsApp tidak valid.", elementId: "noHp" };
   }
 
-  if (!/^([01]\d|2[0-3])\.[0-5]\d$/.test(jamMulai)) {
-    return { valid: false, message: "Format jam mulai harus HH.MM, contoh 08.30.", elementId: "jamMulai" };
+  if (jamMulai && !/^([01]\d|2[0-3])\.[0-5]\d$/.test(jamMulai)) {
+    return { valid: false, message: "Jika jam mulai diisi, gunakan format HH.MM, contoh 08.30.", elementId: "jamMulai" };
   }
 
-  if (!/^([01]\d|2[0-3])\.[0-5]\d$/.test(jamSelesai)) {
-    return { valid: false, message: "Format jam selesai harus HH.MM, contoh 21.00.", elementId: "jamSelesai" };
+  if (jamSelesai && !/^([01]\d|2[0-3])\.[0-5]\d$/.test(jamSelesai)) {
+    return { valid: false, message: "Jika jam selesai diisi, gunakan format HH.MM, contoh 21.00.", elementId: "jamSelesai" };
   }
 
-  if (timeToMinutes(jamSelesai) <= timeToMinutes(jamMulai)) {
-    return { valid: false, message: "Jam selesai harus lebih besar daripada jam mulai.", elementId: "jamSelesai" };
+  if (jamMulai && jamSelesai && timeToMinutes(jamSelesai) <= timeToMinutes(jamMulai)) {
+    return { valid: false, message: "Jika kedua jam diisi, jam selesai harus lebih besar daripada jam mulai.", elementId: "jamSelesai" };
   }
 
-  if (!coordinatesRaw) {
-    return {
-      valid: false,
-      message: "Silakan tandai ruas jalan yang terdampak pada peta terlebih dahulu.",
-      elementId: "peta",
-    };
-  }
-
-  try {
-    const coordinates = JSON.parse(coordinatesRaw);
-    if (!Array.isArray(coordinates) || coordinates.length < 2) {
-      throw new Error("Koordinat kurang");
+  // Peta opsional. Jika ada koordinat, formatnya harus benar.
+  if (coordinatesRaw) {
+    try {
+      const coordinates = JSON.parse(coordinatesRaw);
+      if (!Array.isArray(coordinates) || coordinates.length < 2) {
+        throw new Error("Koordinat kurang");
+      }
+    } catch (_error) {
+      return {
+        valid: false,
+        message: "Data ruas jalan pada peta belum valid. Silakan gambar ulang garis ruas jalan.",
+        elementId: "peta",
+      };
     }
-  } catch (_error) {
-    return {
-      valid: false,
-      message: "Data ruas jalan pada peta belum valid. Silakan gambar ulang garis ruas jalan.",
-      elementId: "peta",
-    };
   }
 
-  const fileValidation = validateFile(file, true);
+  // Dokumen opsional. Jika ada file, format dan ukurannya tetap diperiksa.
+  const fileValidation = validateFile(file, false);
   if (!fileValidation.valid) {
     return { valid: false, message: fileValidation.message, elementId: "dokumenPengajuan" };
   }
@@ -468,7 +466,9 @@ function getFileExtension(fileName) {
 }
 
 function fileToPayload(file) {
-  const validation = validateFile(file, true);
+  if (!file) return Promise.resolve(null);
+
+  const validation = validateFile(file, false);
   if (!validation.valid) return Promise.reject(new Error(validation.message));
 
   return new Promise((resolve, reject) => {
