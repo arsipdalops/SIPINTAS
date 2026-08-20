@@ -1,1060 +1,1153 @@
 /* ==========================================================
-   SIPINTAS - Frontend VS Code + Google Apps Script
+   SIPINTAS - FRONTEND SCRIPT
+   Dinas Perhubungan Kota Malang
+   Terhubung ke Google Apps Script Web App
    ========================================================== */
 
-(() => {
-  "use strict";
+"use strict";
 
-  const API_URL = "https://script.google.com/macros/s/AKfycbwyvni_bpU0x1ocK9JhS1jBIZIQE3x0w8-A-9P1GejcyzJReNJyhDvejTPwyEhQysP8/exec";
-  const MALANG_CENTER = [-7.96662, 112.632632];
-  const ADMIN_TOKEN_KEY = "sipintas_admin_token";
-  const MAX_FILE_SIZE = 8 * 1024 * 1024;
-  const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx"];
+const API_URL =
+  "https://script.google.com/macros/s/AKfycbwyvni_bpU0x1ocK9JhS1jBIZIQE3x0w8-A-9P1GejcyzJReNJyhDvejTPwyEhQysP8/exec";
 
-  const STATUS = {
-    PROCESS: "Sedang Diverifikasi",
-    APPROVED: "Pertimbangan Izin dapat diterbitkan",
-    REJECTED: "Pertimbangan Izin tidak dapat diterbitkan",
-    DONE: "Selesai"
-  };
+const MAX_FILE_SIZE = 8 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx"];
+const ADMIN_TOKEN_KEY = "sipintas_admin_token";
+const MALANG_CENTER = [-7.96662, 112.63263];
+const MALANG_ZOOM = 13;
 
-  const state = {
-    publicMap: null,
-    drawnItems: null,
-    adminToken: localStorage.getItem(ADMIN_TOKEN_KEY) || "",
-    adminData: [],
-    selectedDetail: null,
-    adminMap: null,
-    adminLayerGroup: null
-  };
+let publicMap = null;
+let publicDrawnItems = null;
+let activeRouteLayer = null;
 
-  document.addEventListener("DOMContentLoaded", init);
+let adminMap = null;
+let adminRouteLayer = null;
+let adminData = [];
+let selectedApplication = null;
 
-  function init() {
-    setCurrentYear();
-    initNavigation();
-    initPublicMap();
-    initApplicationForm();
-    initAdmin();
+const $ = (id) => document.getElementById(id);
+
+/* ==========================================================
+   INISIALISASI
+   ========================================================== */
+
+document.addEventListener("DOMContentLoaded", () => {
+  setYear();
+  initNavigation();
+  initInputHelpers();
+  initPublicMap();
+  initApplicationForm();
+  initAdmin();
+});
+
+function setYear() {
+  const yearEl = $("year");
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
+}
+
+/* ==========================================================
+   NAVIGASI MOBILE
+   ========================================================== */
+
+function initNavigation() {
+  const toggle = $("navToggle");
+  const menu = $("navMenu");
+
+  if (!toggle || !menu) return;
+
+  toggle.addEventListener("click", () => {
+    const isOpen = menu.classList.toggle("show");
+    toggle.setAttribute("aria-expanded", String(isOpen));
+  });
+
+  menu.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => {
+      menu.classList.remove("show");
+      toggle.setAttribute("aria-expanded", "false");
+    });
+  });
+}
+
+/* ==========================================================
+   INPUT HELPERS
+   ========================================================== */
+
+function initInputHelpers() {
+  const nik = $("nik");
+  const phone = $("noHp");
+  const jamMulai = $("jamMulai");
+  const jamSelesai = $("jamSelesai");
+
+  if (nik) {
+    nik.addEventListener("input", () => {
+      nik.value = nik.value.replace(/\D/g, "").slice(0, 16);
+    });
   }
 
-  /* ========================================================
-     GENERAL UI
-     ======================================================== */
-
-  function setCurrentYear() {
-    const year = byId("year");
-    if (year) year.textContent = String(new Date().getFullYear());
+  if (phone) {
+    phone.addEventListener("input", () => {
+      let value = phone.value.replace(/[^\d+]/g, "");
+      value = value.replace(/(?!^)\+/g, "");
+      phone.value = value.slice(0, 16);
+    });
   }
 
-  function initNavigation() {
-    const navToggle = byId("navToggle");
-    const navMenu = byId("navMenu");
-    if (!navToggle || !navMenu) return;
+  [jamMulai, jamSelesai].forEach((input) => {
+    if (!input) return;
 
-    navToggle.addEventListener("click", () => {
-      const opened = navMenu.classList.toggle("show");
-      navToggle.setAttribute("aria-expanded", String(opened));
+    input.addEventListener("input", () => {
+      let digits = input.value.replace(/\D/g, "").slice(0, 4);
+      if (digits.length > 2) {
+        digits = `${digits.slice(0, 2)}.${digits.slice(2)}`;
+      }
+      input.value = digits;
     });
 
-    navMenu.querySelectorAll("a").forEach((link) => {
-      link.addEventListener("click", () => {
-        navMenu.classList.remove("show");
-        navToggle.setAttribute("aria-expanded", "false");
-      });
+    input.addEventListener("blur", () => {
+      const normalized = normalizeTimeInput(input.value);
+      if (normalized) input.value = normalized;
+    });
+  });
+}
+
+function normalizeTimeInput(value) {
+  const raw = String(value || "").trim().replace(":", ".");
+  const match = raw.match(/^(\d{1,2})\.(\d{2})$/);
+  if (!match) return raw;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return raw;
+
+  return `${String(hour).padStart(2, "0")}.${String(minute).padStart(2, "0")}`;
+}
+
+function timeToMinutes(value) {
+  const [hour, minute] = String(value).split(".").map(Number);
+  return hour * 60 + minute;
+}
+
+/* ==========================================================
+   PETA PENGAJUAN
+   ========================================================== */
+
+function initPublicMap() {
+  const mapElement = $("map");
+  if (!mapElement || typeof L === "undefined") return;
+
+  publicMap = L.map("map", {
+    zoomControl: true,
+    scrollWheelZoom: true,
+  }).setView(MALANG_CENTER, MALANG_ZOOM);
+
+  addBaseMap(publicMap);
+
+  publicDrawnItems = new L.FeatureGroup();
+  publicMap.addLayer(publicDrawnItems);
+
+  const drawControl = new L.Control.Draw({
+    position: "topleft",
+    draw: {
+      polyline: {
+        shapeOptions: {
+          color: "#ef3340",
+          weight: 6,
+          opacity: 0.95,
+        },
+        showLength: true,
+        metric: true,
+      },
+      polygon: false,
+      rectangle: false,
+      circle: false,
+      circlemarker: false,
+      marker: false,
+    },
+    edit: false,
+  });
+
+  publicMap.addControl(drawControl);
+
+  publicMap.on(L.Draw.Event.CREATED, (event) => {
+    if (activeRouteLayer) {
+      publicDrawnItems.removeLayer(activeRouteLayer);
+    }
+
+    activeRouteLayer = event.layer;
+    activeRouteLayer.setStyle({
+      color: "#ef3340",
+      weight: 6,
+      opacity: 0.95,
+    });
+
+    publicDrawnItems.addLayer(activeRouteLayer);
+    saveRouteFromLayer(activeRouteLayer);
+  });
+
+  const focusButton = $("focusMalangBtn");
+  const clearButton = $("clearMapBtn");
+
+  if (focusButton) {
+    focusButton.addEventListener("click", () => {
+      publicMap.setView(MALANG_CENTER, MALANG_ZOOM);
     });
   }
 
-  /* ========================================================
-     PUBLIC MAP
-     ======================================================== */
-
-  function initPublicMap() {
-    const mapElement = byId("map");
-    if (!mapElement) return;
-
-    if (!window.L) {
-      showMapFallback(mapElement, "Pustaka Leaflet gagal dimuat. Periksa koneksi internet dan urutan tag script.");
-      return;
-    }
-
-    try {
-      state.publicMap = L.map(mapElement, {
-        zoomControl: true,
-        scrollWheelZoom: true
-      }).setView(MALANG_CENTER, 13);
-
-      const tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 20,
-        attribution: "&copy; OpenStreetMap contributors"
-      }).addTo(state.publicMap);
-
-      tileLayer.on("tileerror", () => {
-        const mapInfo = byId("mapInfo");
-        if (mapInfo) mapInfo.textContent = "Peta dasar gagal dimuat. Periksa koneksi internet.";
-      });
-
-      state.drawnItems = new L.FeatureGroup();
-      state.publicMap.addLayer(state.drawnItems);
-
-      const drawPluginReady = Boolean(L.Control && L.Control.Draw && L.Draw && L.Draw.Event);
-
-      if (drawPluginReady) {
-        const drawControl = new L.Control.Draw({
-          position: "topleft",
-          draw: {
-            polyline: {
-              shapeOptions: {
-                color: "#ef3340",
-                weight: 8,
-                opacity: 0.95,
-                lineCap: "round",
-                lineJoin: "round"
-              },
-              metric: true,
-              feet: false
-            },
-            polygon: false,
-            rectangle: false,
-            circle: false,
-            circlemarker: false,
-            marker: false
-          },
-          edit: {
-            featureGroup: state.drawnItems,
-            edit: true,
-            remove: true
-          }
-        });
-
-        state.publicMap.addControl(drawControl);
-      } else {
-        const mapInfo = byId("mapInfo");
-        if (mapInfo) mapInfo.textContent = "Leaflet Draw gagal dimuat. Fitur menggambar belum tersedia.";
-      }
-
-      L.circleMarker(MALANG_CENTER, {
-        radius: 7,
-        color: "#ffffff",
-        weight: 3,
-        fillColor: "#1267d8",
-        fillOpacity: 1
-      })
-        .addTo(state.publicMap)
-        .bindTooltip("Kota Malang");
-
-      if (drawPluginReady) {
-        state.publicMap.on(L.Draw.Event.CREATED, (event) => {
-          state.drawnItems.clearLayers();
-          const layer = event.layer;
-          if (typeof layer.setStyle === "function") {
-            layer.setStyle({
-              color: "#ef3340",
-              weight: 8,
-              opacity: 0.95,
-              lineCap: "round",
-              lineJoin: "round"
-            });
-          }
-          state.drawnItems.addLayer(layer);
-          updateDrawingData();
-        });
-
-        state.publicMap.on(L.Draw.Event.EDITED, updateDrawingData);
-        state.publicMap.on(L.Draw.Event.DELETED, updateDrawingData);
-      }
-
-      const focusButton = byId("focusMalangBtn");
-      if (focusButton) {
-        focusButton.addEventListener("click", () => {
-          state.publicMap.setView(MALANG_CENTER, 13);
-          state.publicMap.invalidateSize();
-        });
-      }
-
-      const clearButton = byId("clearMapBtn");
-      if (clearButton) {
-        clearButton.addEventListener("click", () => {
-          state.drawnItems.clearLayers();
-          updateDrawingData();
-        });
-      }
-
-      const mapLink = document.querySelector('a[href="#peta"]');
-      if (mapLink) {
-        mapLink.addEventListener("click", () => {
-          window.setTimeout(() => state.publicMap.invalidateSize(), 350);
-        });
-      }
-
-      window.setTimeout(() => state.publicMap.invalidateSize(), 250);
-      window.addEventListener("resize", debounce(() => state.publicMap.invalidateSize(), 150));
-    } catch (error) {
-      console.error("Gagal menginisialisasi peta:", error);
-      showMapFallback(mapElement, "Peta tidak dapat dibuat. Buka Console browser untuk melihat detail kesalahan.");
-    }
+  if (clearButton) {
+    clearButton.addEventListener("click", clearPublicRoute);
   }
 
-  function showMapFallback(element, message) {
-    element.innerHTML = `<p style="padding:20px;margin:0">${escapeHtml(message)}</p>`;
-    const mapInfo = byId("mapInfo");
-    if (mapInfo) mapInfo.textContent = message;
+  window.addEventListener("resize", () => {
+    if (publicMap) publicMap.invalidateSize();
+  });
+}
+
+function addBaseMap(map) {
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
+}
+
+function saveRouteFromLayer(layer) {
+  const latLngs = flattenLatLngs(layer.getLatLngs());
+
+  if (latLngs.length < 2) {
+    clearRouteHiddenFields();
+    showRouteText("Ruas jalan minimal harus memiliki 2 titik.", true);
+    return;
   }
 
-  function getDrawnLayer() {
-    let selectedLayer = null;
-    if (!state.drawnItems) return selectedLayer;
+  const coordinates = latLngs.map((point) => ({
+    lat: roundCoordinate(point.lat),
+    lng: roundCoordinate(point.lng),
+  }));
 
-    state.drawnItems.eachLayer((layer) => {
-      selectedLayer = layer;
-    });
-    return selectedLayer;
+  let totalMeters = 0;
+  for (let i = 1; i < latLngs.length; i += 1) {
+    totalMeters += publicMap.distance(latLngs[i - 1], latLngs[i]);
   }
 
-  function updateDrawingData() {
-    const layer = getDrawnLayer();
-    const drawingStatus = byId("drawingStatus");
-    const mapInfo = byId("mapInfo");
+  const start = coordinates[0];
+  const end = coordinates[coordinates.length - 1];
+  const meters = Math.round(totalMeters);
+  const kilometers = (totalMeters / 1000).toFixed(3);
 
-    if (!layer || typeof layer.getLatLngs !== "function") {
-      setValue("koordinatRuas", "");
-      setValue("titikAwal", "");
-      setValue("titikAkhir", "");
-      setValue("panjangMeter", "");
-      setValue("panjangKm", "");
-      if (drawingStatus) drawingStatus.textContent = "Belum ada ruas jalan yang ditandai.";
-      if (mapInfo) mapInfo.textContent = "Belum ada ruas jalan yang digambar.";
-      return;
+  $("koordinatRuas").value = JSON.stringify(coordinates);
+  $("titikAwal").value = `${start.lat},${start.lng}`;
+  $("titikAkhir").value = `${end.lat},${end.lng}`;
+  $("panjangMeter").value = String(meters);
+  $("panjangKm").value = kilometers;
+
+  showRouteText(
+    `${coordinates.length} titik tersimpan • ± ${formatNumber(meters)} meter (${kilometers} km)`,
+    false
+  );
+}
+
+function flattenLatLngs(input) {
+  if (!Array.isArray(input)) return [];
+
+  const result = [];
+  input.forEach((item) => {
+    if (Array.isArray(item)) {
+      result.push(...flattenLatLngs(item));
+    } else if (item && Number.isFinite(item.lat) && Number.isFinite(item.lng)) {
+      result.push(item);
     }
+  });
+  return result;
+}
 
-    const latLngs = flattenLatLngs(layer.getLatLngs());
-    if (latLngs.length < 2) return;
+function roundCoordinate(value) {
+  return Number(Number(value).toFixed(7));
+}
 
-    const coordinates = latLngs.map((point) => [
-      Number(point.lat.toFixed(6)),
-      Number(point.lng.toFixed(6))
-    ]);
+function clearPublicRoute() {
+  if (publicDrawnItems) publicDrawnItems.clearLayers();
+  activeRouteLayer = null;
+  clearRouteHiddenFields();
+  showRouteText("Belum ada ruas jalan yang digambar.", false, true);
+}
 
-    const lengthMeter = calculateLength(latLngs);
-    const startPoint = coordinates[0];
-    const endPoint = coordinates[coordinates.length - 1];
+function clearRouteHiddenFields() {
+  ["koordinatRuas", "titikAwal", "titikAkhir", "panjangMeter", "panjangKm"].forEach((id) => {
+    const element = $(id);
+    if (element) element.value = "";
+  });
+}
 
-    setValue("koordinatRuas", JSON.stringify(coordinates));
-    setValue("titikAwal", JSON.stringify(startPoint));
-    setValue("titikAkhir", JSON.stringify(endPoint));
-    setValue("panjangMeter", String(Math.round(lengthMeter)));
-    setValue("panjangKm", (lengthMeter / 1000).toFixed(3));
+function showRouteText(text, isError = false, isEmpty = false) {
+  const drawingStatus = $("drawingStatus");
+  const mapInfo = $("mapInfo");
 
-    const readable = formatDistance(lengthMeter);
-    if (drawingStatus) {
-      drawingStatus.textContent = `Ruas sudah ditandai. Jumlah titik: ${coordinates.length}. Perkiraan panjang: ${readable}.`;
-    }
-    if (mapInfo) {
-      mapInfo.textContent = `Garis merah memiliki ${coordinates.length} titik. Perkiraan panjang: ${readable}.`;
-    }
+  if (drawingStatus) {
+    drawingStatus.textContent = isEmpty
+      ? "Belum ada ruas jalan yang ditandai."
+      : isError
+        ? text
+        : `Ruas berhasil ditandai. ${text}`;
   }
 
-  function flattenLatLngs(latLngs) {
-    if (!Array.isArray(latLngs)) return [];
-    if (latLngs.length && Array.isArray(latLngs[0])) return flattenLatLngs(latLngs[0]);
-    return latLngs;
+  if (mapInfo) {
+    mapInfo.textContent = isEmpty ? "Belum ada ruas jalan yang digambar." : text;
   }
+}
 
-  function calculateLength(latLngs) {
-    if (!state.publicMap) return 0;
-    let total = 0;
-    for (let index = 1; index < latLngs.length; index += 1) {
-      total += state.publicMap.distance(latLngs[index - 1], latLngs[index]);
-    }
-    return total;
-  }
+/* ==========================================================
+   FORM PENGAJUAN
+   ========================================================== */
 
-  function formatDistance(meters) {
-    if (!meters) return "0 meter";
-    if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
-    return `${Math.round(meters)} meter`;
-  }
+function initApplicationForm() {
+  const form = $("applicationForm");
+  if (!form) return;
 
-  /* ========================================================
-     APPLICATION FORM
-     ======================================================== */
-
-  function initApplicationForm() {
-    const applicationForm = byId("applicationForm");
-    if (!applicationForm) return;
-
-    // Form pengajuan dibuat fleksibel: field yang kosong tetap boleh dikirim.
-    // Validasi hanya dilakukan untuk nilai yang memang diisi pengguna.
-    applicationForm.noValidate = true;
-
-    const nik = byId("nik");
-    if (nik) {
-      nik.addEventListener("input", (event) => {
-        event.target.value = onlyDigits(event.target.value).slice(0, 16);
-      });
-    }
-
-    const phone = byId("noHp");
-    if (phone) {
-      phone.addEventListener("input", (event) => {
-        event.target.value = String(event.target.value || "")
-          .replace(/[^\d+]/g, "")
-          .replace(/(?!^)\+/g, "")
-          .slice(0, 16);
-      });
-    }
-
-    ["jamMulai", "jamSelesai"].forEach((id) => {
-      const input = byId(id);
-      if (!input) return;
-      input.addEventListener("input", (event) => {
-        let value = onlyDigits(event.target.value).slice(0, 4);
-        if (value.length >= 3) value = `${value.slice(0, 2)}.${value.slice(2)}`;
-        event.target.value = value;
-      });
-    });
-
-    const documentInput = byId("dokumenPengajuan");
-    if (documentInput) {
-      documentInput.addEventListener("change", () => {
-        // Dokumen tidak wajib. Jika dipilih, format dan ukuran tetap diperiksa.
-        const error = validateFile(documentInput.files[0], false);
-        documentInput.setCustomValidity(error);
-        if (error) documentInput.reportValidity();
-      });
-    }
-
-    applicationForm.addEventListener("submit", handleApplicationSubmit);
-  }
-
-  async function handleApplicationSubmit(event) {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    clearMessage($("formMessage"));
 
-    const form = event.currentTarget;
-    const submitButton = byId("submitBtn");
-    const formMessage = byId("formMessage");
-    clearMessage(formMessage);
-    updateDrawingData();
+    if (!form.reportValidity()) return;
 
-    const payload = buildApplicationPayload();
-    const documentFile = getSelectedFile("dokumenPengajuan");
-    const validationMessage = validateApplicationPayload(payload, documentFile);
-
-    if (validationMessage) {
-      showMessage(formMessage, "error", validationMessage);
+    const validation = validateApplicationForm();
+    if (!validation.valid) {
+      showMessage($("formMessage"), validation.message, "error");
+      focusElement(validation.elementId);
       return;
     }
 
-    if (!isApiReady()) {
-      showMessage(formMessage, "error", "API_URL belum diisi dengan URL deployment Google Apps Script.");
-      return;
-    }
-
-    payload.idPengajuan = createClientRequestId();
-    setButtonLoading(submitButton, true, "Mengirim Pengajuan...");
+    const submitButton = $("submitBtn");
+    const originalText = submitButton.textContent;
 
     try {
-      const file = documentFile ? await fileToPayload(documentFile) : null;
-      await postToAppsScript({
+      setButtonLoading(submitButton, true, "Mengirim pengajuan...");
+
+      const file = $("dokumenPengajuan").files[0];
+      const filePayload = await fileToPayload(file);
+      const payload = collectApplicationPayload();
+
+      const result = await postJson({
         action: "submit",
         payload,
-        file
+        file: filePayload,
       });
 
+      if (!result || !result.success) {
+        throw new Error(result?.message || "Pengajuan gagal dikirim.");
+      }
+
+      const idText = result.idPengajuan ? ` ID Pengajuan: ${result.idPengajuan}.` : "";
       showMessage(
-        formMessage,
-        "success",
-        `Permintaan pengajuan sudah dikirim. Simpan ID Pengajuan: ${payload.idPengajuan}. Periksa email pemohon untuk konfirmasi dari sistem.`
+        $("formMessage"),
+        `Pengajuan berhasil dikirim.${idText} Simpan ID tersebut untuk referensi Anda.`,
+        "success"
       );
 
       form.reset();
-      if (state.drawnItems) state.drawnItems.clearLayers();
-      updateDrawingData();
-      if (state.publicMap) state.publicMap.setView(MALANG_CENTER, 13);
+      clearPublicRoute();
+
+      $("formMessage").scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (error) {
-      console.error(error);
-      showMessage(formMessage, "error", `Pengajuan gagal dikirim: ${error.message}`);
+      showMessage(
+        $("formMessage"),
+        friendlyError(error, "Pengajuan tidak dapat dikirim."),
+        "error"
+      );
     } finally {
-      setButtonLoading(submitButton, false, "Kirim Pengajuan Pertimbangan Teknis");
+      setButtonLoading(submitButton, false, originalText);
     }
+  });
+}
+
+function collectApplicationPayload() {
+  return {
+    nama: valueOf("nama"),
+    nik: valueOf("nik"),
+    email: valueOf("email").toLowerCase(),
+    noHp: valueOf("noHp"),
+    alamat: valueOf("alamat"),
+    namaKegiatan: valueOf("namaKegiatan"),
+    tanggal: valueOf("tanggal"),
+    estimasiPeserta: valueOf("estimasiPeserta"),
+    jamMulai: normalizeTimeInput(valueOf("jamMulai")),
+    jamSelesai: normalizeTimeInput(valueOf("jamSelesai")),
+    lokasiPatokan: valueOf("lokasiPatokan"),
+    persetujuanTembusan: Boolean($("persetujuanTembusan")?.checked),
+    persetujuan: Boolean($("persetujuan")?.checked),
+    metodePenandaan: "Leaflet Draw",
+    koordinatRuas: valueOf("koordinatRuas"),
+    titikAwal: valueOf("titikAwal"),
+    titikAkhir: valueOf("titikAkhir"),
+    panjangMeter: valueOf("panjangMeter"),
+    panjangKm: valueOf("panjangKm"),
+    userAgent: navigator.userAgent || "",
+  };
+}
+
+function validateApplicationForm() {
+  const nik = valueOf("nik");
+  const noHp = valueOf("noHp");
+  const jamMulai = normalizeTimeInput(valueOf("jamMulai"));
+  const jamSelesai = normalizeTimeInput(valueOf("jamSelesai"));
+  const coordinatesRaw = valueOf("koordinatRuas");
+  const file = $("dokumenPengajuan")?.files?.[0];
+
+  if (!/^\d{16}$/.test(nik)) {
+    return { valid: false, message: "NIK harus terdiri dari 16 digit angka.", elementId: "nik" };
   }
 
-  function buildApplicationPayload() {
+  if (!/^(\+62|62|0)\d{8,13}$/.test(noHp)) {
+    return { valid: false, message: "Nomor HP / WhatsApp tidak valid.", elementId: "noHp" };
+  }
+
+  if (!/^([01]\d|2[0-3])\.[0-5]\d$/.test(jamMulai)) {
+    return { valid: false, message: "Format jam mulai harus HH.MM, contoh 08.30.", elementId: "jamMulai" };
+  }
+
+  if (!/^([01]\d|2[0-3])\.[0-5]\d$/.test(jamSelesai)) {
+    return { valid: false, message: "Format jam selesai harus HH.MM, contoh 21.00.", elementId: "jamSelesai" };
+  }
+
+  if (timeToMinutes(jamSelesai) <= timeToMinutes(jamMulai)) {
+    return { valid: false, message: "Jam selesai harus lebih besar daripada jam mulai.", elementId: "jamSelesai" };
+  }
+
+  if (!coordinatesRaw) {
     return {
-      nama: getValue("nama"),
-      nik: getValue("nik"),
-      email: getValue("email").toLowerCase(),
-      noHp: getValue("noHp"),
-      alamat: getValue("alamat"),
-      namaKegiatan: getValue("namaKegiatan"),
-      tanggal: getValue("tanggal"),
-      estimasiPeserta: getValue("estimasiPeserta"),
-      jamMulai: getValue("jamMulai"),
-      jamSelesai: getValue("jamSelesai"),
-      lokasiPatokan: getValue("lokasiPatokan"),
-      persetujuanTembusan: isChecked("persetujuanTembusan"),
-      persetujuan: isChecked("persetujuan"),
-      metodePenandaan: "Manual",
-      koordinatRuas: getValue("koordinatRuas"),
-      titikAwal: getValue("titikAwal"),
-      titikAkhir: getValue("titikAkhir"),
-      panjangMeter: getValue("panjangMeter"),
-      panjangKm: getValue("panjangKm"),
-      userAgent: navigator.userAgent
+      valid: false,
+      message: "Silakan tandai ruas jalan yang terdampak pada peta terlebih dahulu.",
+      elementId: "peta",
     };
   }
 
-  function validateApplicationPayload(payload, documentFile) {
-    // Semua field boleh kosong. Jika suatu field diisi, formatnya tetap diperiksa.
-    if (payload.nik && !/^\d{16}$/.test(payload.nik)) {
-      return "Jika NIK diisi, NIK harus berisi tepat 16 digit angka.";
+  try {
+    const coordinates = JSON.parse(coordinatesRaw);
+    if (!Array.isArray(coordinates) || coordinates.length < 2) {
+      throw new Error("Koordinat kurang");
     }
+  } catch (_error) {
+    return {
+      valid: false,
+      message: "Data ruas jalan pada peta belum valid. Silakan gambar ulang garis ruas jalan.",
+      elementId: "peta",
+    };
+  }
 
-    if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
-      return "Jika email diisi, format email pemohon harus valid.";
-    }
+  const fileValidation = validateFile(file, true);
+  if (!fileValidation.valid) {
+    return { valid: false, message: fileValidation.message, elementId: "dokumenPengajuan" };
+  }
 
-    if (payload.jamMulai && !isValidTime24(payload.jamMulai)) {
-      return "Jika jam mulai diisi, gunakan format 24 jam, contoh 19.00.";
-    }
+  return { valid: true };
+}
 
-    if (payload.jamSelesai && !isValidTime24(payload.jamSelesai)) {
-      return "Jika jam selesai diisi, gunakan format 24 jam, contoh 21.30.";
-    }
+/* ==========================================================
+   FILE HANDLING
+   ========================================================== */
 
-    // Karena form hanya memiliki satu tanggal kegiatan, bandingkan jam bila keduanya diisi.
-    if (
-      payload.jamMulai &&
-      payload.jamSelesai &&
-      isValidTime24(payload.jamMulai) &&
-      isValidTime24(payload.jamSelesai) &&
-      timeToMinutes(payload.jamSelesai) <= timeToMinutes(payload.jamMulai)
-    ) {
-      return "Jam selesai harus lebih besar daripada jam mulai.";
-    }
+function validateFile(file, required = false) {
+  if (!file) {
+    return required
+      ? { valid: false, message: "Dokumen wajib dipilih." }
+      : { valid: true };
+  }
 
-    if (payload.estimasiPeserta) {
-      const peserta = Number(payload.estimasiPeserta);
-      if (!Number.isFinite(peserta) || peserta < 1) {
-        return "Jika estimasi peserta diisi, nilainya minimal 1.";
+  const extension = getFileExtension(file.name);
+  if (!ALLOWED_EXTENSIONS.includes(extension)) {
+    return { valid: false, message: "Format dokumen harus PDF, DOC, atau DOCX." };
+  }
+
+  if (file.size <= 0 || file.size > MAX_FILE_SIZE) {
+    return { valid: false, message: "Ukuran dokumen maksimal 8 MB." };
+  }
+
+  return { valid: true };
+}
+
+function getFileExtension(fileName) {
+  const parts = String(fileName || "").toLowerCase().split(".");
+  return parts.length > 1 ? parts.pop() : "";
+}
+
+function fileToPayload(file) {
+  const validation = validateFile(file, true);
+  if (!validation.valid) return Promise.reject(new Error(validation.message));
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      try {
+        const result = String(reader.result || "");
+        const commaIndex = result.indexOf(",");
+        const base64 = commaIndex >= 0 ? result.slice(commaIndex + 1) : result;
+
+        if (!base64) throw new Error("Isi dokumen tidak dapat dibaca.");
+
+        resolve({
+          name: file.name,
+          mimeType: file.type || mimeFromExtension(getFileExtension(file.name)),
+          size: file.size,
+          base64,
+        });
+      } catch (error) {
+        reject(error);
       }
-    }
+    };
 
-    const fileError = validateFile(documentFile, false);
-    if (fileError) return fileError;
+    reader.onerror = () => reject(new Error("Dokumen gagal dibaca oleh browser."));
+    reader.readAsDataURL(file);
+  });
+}
 
-    return "";
+function mimeFromExtension(extension) {
+  const types = {
+    pdf: "application/pdf",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  };
+  return types[extension] || "application/octet-stream";
+}
+
+/* ==========================================================
+   API REQUESTS
+   ========================================================== */
+
+async function postJson(body) {
+  let response;
+
+  try {
+    response = await fetch(API_URL, {
+      method: "POST",
+      redirect: "follow",
+      headers: {
+        // text/plain digunakan agar request dari hosting statis tidak memicu
+        // preflight CORS sebelum mencapai Google Apps Script.
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    throw new Error("Tidak dapat terhubung ke server Apps Script. Periksa koneksi internet dan deployment Web App.");
   }
 
-
-  /* ========================================================
-     ADMIN
-     ======================================================== */
-
-  function initAdmin() {
-    const adminLoginForm = byId("adminLoginForm");
-    const refreshButton = byId("refreshAdminBtn");
-    const logoutButton = byId("logoutAdminBtn");
-    const adminSearch = byId("adminSearch");
-    const statusFilter = byId("statusFilter");
-    const closeDetailButton = byId("closeDetailBtn");
-    const printButton = byId("printDetailBtn");
-    const statusForm = byId("statusForm");
-    const tableBody = byId("adminTableBody");
-    const letterInput = byId("suratPertimbangan");
-
-    if (adminLoginForm) adminLoginForm.addEventListener("submit", handleAdminLogin);
-    if (refreshButton) refreshButton.addEventListener("click", loadAdminData);
-    if (logoutButton) logoutButton.addEventListener("click", logoutAdmin);
-    if (adminSearch) adminSearch.addEventListener("input", renderAdminTable);
-    if (statusFilter) statusFilter.addEventListener("change", renderAdminTable);
-    if (closeDetailButton) closeDetailButton.addEventListener("click", () => byId("detailPanel")?.classList.add("hidden"));
-    if (printButton) printButton.addEventListener("click", () => window.print());
-    if (statusForm) statusForm.addEventListener("submit", handleStatusSubmit);
-    if (tableBody) tableBody.addEventListener("click", handleAdminTableClick);
-
-    if (letterInput) {
-      letterInput.addEventListener("change", () => {
-        const error = validateFile(letterInput.files[0], false);
-        letterInput.setCustomValidity(error);
-        if (error) letterInput.reportValidity();
-      });
-    }
-
-    if (state.adminToken) {
-      showAdminDashboard();
-      loadAdminData();
-    }
+  if (!response.ok) {
+    throw new Error(`Server mengembalikan HTTP ${response.status}.`);
   }
 
-  async function handleAdminLogin(event) {
-    event.preventDefault();
-    const message = byId("adminLoginMessage");
-    clearMessage(message);
+  const text = await response.text();
 
-    if (!isApiReady()) {
-      showMessage(message, "error", "API_URL belum diisi di script.js.");
-      return;
-    }
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    throw new Error("Respons Apps Script bukan JSON yang valid. Pastikan deployment Web App sudah menggunakan versi backend terbaru.");
+  }
+}
 
-    try {
-      const response = await jsonp("adminLogin", {
-        username: getValue("adminUsername"),
-        password: getValue("adminPassword")
-      });
+function jsonpRequest(params, timeoutMs = 20000) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__sipintas_jsonp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    let timeoutId = null;
 
-      if (!response?.success) {
-        showMessage(message, "error", response?.message || "Login gagal.");
-        return;
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      try {
+        delete window[callbackName];
+      } catch (_error) {
+        window[callbackName] = undefined;
       }
+    };
 
-      state.adminToken = response.token;
-      localStorage.setItem(ADMIN_TOKEN_KEY, response.token);
-      showAdminDashboard();
-      await loadAdminData();
-    } catch (error) {
-      showMessage(message, "error", error.message);
-    }
-  }
+    window[callbackName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
 
-  function showAdminDashboard() {
-    byId("adminLoginBox")?.classList.add("hidden");
-    byId("adminDashboard")?.classList.remove("hidden");
-  }
-
-  function logoutAdmin() {
-    state.adminToken = "";
-    state.adminData = [];
-    state.selectedDetail = null;
-    localStorage.removeItem(ADMIN_TOKEN_KEY);
-    byId("adminDashboard")?.classList.add("hidden");
-    byId("adminLoginBox")?.classList.remove("hidden");
-    byId("detailPanel")?.classList.add("hidden");
-  }
-
-  async function loadAdminData() {
-    if (!state.adminToken) return;
-
-    try {
-      const response = await jsonp("adminList", { token: state.adminToken });
-      if (!response?.success) {
-        if (String(response?.message || "").toLowerCase().includes("session")) logoutAdmin();
-        throw new Error(response?.message || "Gagal mengambil data admin.");
-      }
-
-      state.adminData = Array.isArray(response.data) ? response.data : [];
-      renderKpis();
-      renderAdminTable();
-    } catch (error) {
-      console.error(error);
-      window.alert(error.message);
-    }
-  }
-
-  function renderKpis() {
-    const data = state.adminData;
-    setText("kpiTotal", data.length);
-    setText("kpiProcess", data.filter((item) => item.status === STATUS.PROCESS).length);
-    setText("kpiRecommended", data.filter((item) => item.status === STATUS.APPROVED).length);
-    setText("kpiRevision", data.filter((item) => item.status === STATUS.REJECTED).length);
-  }
-
-  function renderAdminTable() {
-    const tableBody = byId("adminTableBody");
-    if (!tableBody) return;
-
-    const keyword = getValue("adminSearch").toLowerCase();
-    const selectedStatus = getValue("statusFilter");
-
-    const filtered = state.adminData.filter((item) => {
-      const searchableText = [
-        item.idPengajuan,
-        item.nama,
-        item.nik,
-        item.email,
-        item.noHp,
-        item.namaKegiatan,
-        item.lokasiPatokan,
-        item.status
-      ]
-        .map((value) => String(value || ""))
-        .join(" ")
-        .toLowerCase();
-
-      return (!keyword || searchableText.includes(keyword)) && (!selectedStatus || item.status === selectedStatus);
+    const searchParams = new URLSearchParams({
+      ...params,
+      callback: callbackName,
+      _: String(Date.now()),
     });
 
-    if (!filtered.length) {
-      tableBody.innerHTML = '<tr><td colspan="7">Tidak ada data yang sesuai.</td></tr>';
+    script.src = `${API_URL}?${searchParams.toString()}`;
+    script.async = true;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("Tidak dapat terhubung ke Apps Script."));
+    };
+
+    timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Koneksi ke Apps Script melebihi batas waktu."));
+    }, timeoutMs);
+
+    document.head.appendChild(script);
+  });
+}
+
+/* ==========================================================
+   ADMIN
+   ========================================================== */
+
+function initAdmin() {
+  const loginForm = $("adminLoginForm");
+  const refreshButton = $("refreshAdminBtn");
+  const logoutButton = $("logoutAdminBtn");
+  const search = $("adminSearch");
+  const filter = $("statusFilter");
+  const closeDetail = $("closeDetailBtn");
+  const statusForm = $("statusForm");
+  const printButton = $("printDetailBtn");
+
+  if (loginForm) loginForm.addEventListener("submit", handleAdminLogin);
+  if (refreshButton) refreshButton.addEventListener("click", () => loadAdminData());
+  if (logoutButton) logoutButton.addEventListener("click", () => logoutAdmin());
+  if (search) search.addEventListener("input", renderAdminTable);
+  if (filter) filter.addEventListener("change", renderAdminTable);
+  if (closeDetail) closeDetail.addEventListener("click", closeDetailPanel);
+  if (statusForm) statusForm.addEventListener("submit", handleStatusUpdate);
+  if (printButton) printButton.addEventListener("click", () => window.print());
+
+  const tableBody = $("adminTableBody");
+  if (tableBody) {
+    tableBody.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-id]");
+      if (!button) return;
+      openApplicationDetail(button.dataset.id);
+    });
+  }
+
+  const storedToken = getAdminToken();
+  if (storedToken) {
+    showAdminDashboard();
+    loadAdminData();
+  } else {
+    showAdminLogin();
+  }
+}
+
+async function handleAdminLogin(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  clearMessage($("adminLoginMessage"));
+
+  if (!form.reportValidity()) return;
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  const originalText = submitButton.textContent;
+
+  try {
+    setButtonLoading(submitButton, true, "Memeriksa...");
+
+    const result = await jsonpRequest({
+      action: "adminLogin",
+      username: valueOf("adminUsername"),
+      password: valueOf("adminPassword"),
+    });
+
+    if (!result || !result.success || !result.token) {
+      throw new Error(result?.message || "Login admin gagal.");
+    }
+
+    sessionStorage.setItem(ADMIN_TOKEN_KEY, result.token);
+    $("adminPassword").value = "";
+    showAdminDashboard();
+    await loadAdminData();
+  } catch (error) {
+    showMessage($("adminLoginMessage"), friendlyError(error, "Login admin gagal."), "error");
+  } finally {
+    setButtonLoading(submitButton, false, originalText);
+  }
+}
+
+async function loadAdminData(options = {}) {
+  const token = getAdminToken();
+  if (!token) {
+    logoutAdmin("Silakan login kembali.");
+    return;
+  }
+
+  const refreshButton = $("refreshAdminBtn");
+  const originalText = refreshButton?.textContent || "Refresh Data";
+  const preserveDetailId = options.preserveDetailId || null;
+
+  try {
+    if (refreshButton) setButtonLoading(refreshButton, true, "Memuat...");
+
+    const result = await jsonpRequest({
+      action: "adminList",
+      token,
+    });
+
+    if (!result || !result.success) {
+      const message = result?.message || "Data admin gagal dimuat.";
+      if (isSessionError(message)) {
+        logoutAdmin(message);
+        return;
+      }
+      throw new Error(message);
+    }
+
+    adminData = Array.isArray(result.data) ? result.data : [];
+    updateKpis();
+    renderAdminTable();
+
+    if (preserveDetailId) {
+      openApplicationDetail(preserveDetailId, false);
+    }
+  } catch (error) {
+    const message = friendlyError(error, "Data admin gagal dimuat.");
+    if (isSessionError(message)) {
+      logoutAdmin(message);
       return;
     }
 
-    tableBody.innerHTML = filtered
-      .map((item) => `
+    showMessage($("adminLoginMessage"), message, "error");
+  } finally {
+    if (refreshButton) setButtonLoading(refreshButton, false, originalText);
+  }
+}
+
+function updateKpis() {
+  const total = adminData.length;
+  const process = adminData.filter((item) => item.status === "Sedang Diverifikasi").length;
+  const recommended = adminData.filter(
+    (item) => item.status === "Pertimbangan Izin dapat diterbitkan"
+  ).length;
+  const revision = adminData.filter(
+    (item) => item.status === "Pertimbangan Izin tidak dapat diterbitkan"
+  ).length;
+
+  setText("kpiTotal", total);
+  setText("kpiProcess", process);
+  setText("kpiRecommended", recommended);
+  setText("kpiRevision", revision);
+}
+
+function renderAdminTable() {
+  const tableBody = $("adminTableBody");
+  if (!tableBody) return;
+
+  const query = valueOf("adminSearch").toLowerCase();
+  const status = valueOf("statusFilter");
+
+  const filtered = adminData.filter((item) => {
+    const searchable = [
+      item.idPengajuan,
+      item.nama,
+      item.nik,
+      item.email,
+      item.noHp,
+      item.namaKegiatan,
+      item.tanggal,
+      item.lokasiPatokan,
+      item.status,
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    const matchQuery = !query || searchable.includes(query);
+    const matchStatus = !status || item.status === status;
+    return matchQuery && matchStatus;
+  });
+
+  if (!filtered.length) {
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align:center;padding:28px;">
+          Tidak ada data pengajuan yang sesuai.
+        </td>
+      </tr>`;
+    return;
+  }
+
+  tableBody.innerHTML = filtered
+    .map(
+      (item) => `
         <tr>
-          <td><strong>${escapeHtml(item.idPengajuan || "-")}</strong><br><small>${escapeHtml(item.timestamp || "-")}</small></td>
+          <td><strong>${escapeHtml(item.idPengajuan || "-")}</strong></td>
           <td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(item.status || "-")}</span></td>
-          <td>${escapeHtml(item.nama || "-")}<br><small>${escapeHtml(item.email || "-")}</small></td>
+          <td>${escapeHtml(item.nama || "-")}</td>
           <td>${escapeHtml(item.namaKegiatan || "-")}</td>
-          <td>${escapeHtml(item.tanggal || "-")}<br><small>${escapeHtml(item.jamMulai || "-")} - ${escapeHtml(item.jamSelesai || "-")}</small></td>
+          <td>${escapeHtml(formatDisplayDate(item.tanggal))}</td>
           <td>${escapeHtml(item.lokasiPatokan || "-")}</td>
-          <td><button class="table-btn" type="button" data-id="${escapeAttr(item.idPengajuan || "")}">Detail</button></td>
-        </tr>
-      `)
-      .join("");
-  }
+          <td><button class="table-btn" type="button" data-id="${escapeAttribute(item.idPengajuan || "")}">Detail</button></td>
+        </tr>`
+    )
+    .join("");
+}
 
-  function handleAdminTableClick(event) {
-    const button = event.target.closest("button[data-id]");
-    if (!button) return;
-    showDetail(button.dataset.id);
-  }
+function statusClass(status) {
+  if (status === "Pertimbangan Izin dapat diterbitkan" || status === "Selesai") return "good";
+  if (status === "Pertimbangan Izin tidak dapat diterbitkan") return "bad";
+  return "warn";
+}
 
-  function showDetail(idPengajuan) {
-    const item = state.adminData.find((row) => String(row.idPengajuan) === String(idPengajuan));
-    if (!item) return;
+function openApplicationDetail(idPengajuan, scroll = true) {
+  const item = adminData.find((row) => row.idPengajuan === idPengajuan);
+  if (!item) return;
 
-    state.selectedDetail = item;
-    setText("detailTitle", `${item.idPengajuan || "-"} - ${item.namaKegiatan || "-"}`);
-    setSelectValue("updateStatus", item.status || STATUS.PROCESS);
-    setValue("adminNote", item.catatanAdmin || item.note || "");
-    clearFileInput("suratPertimbangan");
-    clearMessage(byId("statusMessage"));
+  selectedApplication = item;
+  setText("detailTitle", `${item.idPengajuan || "-"} — ${item.namaKegiatan || "Pengajuan"}`);
 
-    renderDetailRows(byId("pemohonDetail"), [
+  const pemohonDetail = $("pemohonDetail");
+  const kegiatanDetail = $("kegiatanDetail");
+
+  if (pemohonDetail) {
+    pemohonDetail.innerHTML = buildDetailList([
       ["Nama", item.nama],
       ["NIK", item.nik],
       ["Email", item.email],
       ["No. HP", item.noHp],
-      ["Alamat", item.alamat]
+      ["Alamat", item.alamat],
+      ["Dokumen", buildSafeLink(item.dokumenPengajuanUrl, item.dokumenPengajuanNama || "Buka dokumen")],
     ]);
+  }
 
-    renderDetailRows(byId("kegiatanDetail"), [
+  if (kegiatanDetail) {
+    kegiatanDetail.innerHTML = buildDetailList([
+      ["Status", item.status],
       ["Kegiatan", item.namaKegiatan],
-      ["Tanggal", item.tanggal],
+      ["Tanggal", formatDisplayDate(item.tanggal)],
       ["Jam", `${item.jamMulai || "-"} - ${item.jamSelesai || "-"}`],
-      ["Peserta", item.estimasiPeserta],
+      ["Peserta", item.estimasiPeserta ? `${item.estimasiPeserta} orang` : "-"],
       ["Lokasi", item.lokasiPatokan],
-      ["Panjang", `${item.panjangMeter || 0} meter / ${item.panjangKm || 0} km`],
-      ["Dokumen pengajuan", item.dokumenPengajuanUrl || item.dokumenUrl, "link"],
-      ["Surat pertimbangan", item.suratPertimbanganUrl || item.suratUrl, "link"],
-      ["Catatan admin", item.catatanAdmin || item.note]
+      ["Panjang", formatRouteLength(item)],
+      ["Catatan", item.catatanAdmin || "-"],
+      ["Surat", buildSafeLink(item.suratPertimbanganUrl, item.suratPertimbanganNama || "Buka surat")],
     ]);
-
-    const detailPanel = byId("detailPanel");
-    detailPanel?.classList.remove("hidden");
-    detailPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.setTimeout(() => renderAdminMap(item), 180);
   }
 
-  async function handleStatusSubmit(event) {
-    event.preventDefault();
-    const message = byId("statusMessage");
-    const submitButton = byId("statusSubmitBtn") || event.currentTarget.querySelector('button[type="submit"]');
-    clearMessage(message);
+  const updateStatus = $("updateStatus");
+  const adminNote = $("adminNote");
+  const letterInput = $("suratPertimbangan");
 
-    if (!state.selectedDetail) {
-      showMessage(message, "error", "Tidak ada pengajuan yang dipilih.");
-      return;
-    }
+  if (updateStatus) updateStatus.value = item.status || "Sedang Diverifikasi";
+  if (adminNote) adminNote.value = item.catatanAdmin || "";
+  if (letterInput) letterInput.value = "";
+  clearMessage($("statusMessage"));
 
-    const status = getValue("updateStatus");
-    const note = getValue("adminNote");
-    const letterFile = getSelectedFile("suratPertimbangan");
-    const existingLetter = state.selectedDetail.suratPertimbanganUrl || state.selectedDetail.suratUrl;
+  const panel = $("detailPanel");
+  if (panel) panel.classList.remove("hidden");
 
-    const fileError = validateFile(letterFile, false);
-    if (fileError) {
-      showMessage(message, "error", fileError);
-      return;
-    }
+  renderAdminMap(item);
 
-    if (status === STATUS.APPROVED && !letterFile && !existingLetter) {
-      showMessage(message, "error", "Unggah surat pertimbangan sebelum menetapkan status dapat diterbitkan.");
-      return;
-    }
+  if (scroll && panel) {
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
 
-    setButtonLoading(submitButton, true, "Memperbarui Status...");
+function closeDetailPanel() {
+  selectedApplication = null;
+  const panel = $("detailPanel");
+  if (panel) panel.classList.add("hidden");
+  clearMessage($("statusMessage"));
+}
 
-    try {
-      if (letterFile) {
-        const file = await fileToPayload(letterFile);
-        await postToAppsScript({
-          action: "updateStatusWithFile",
-          payload: {
-            token: state.adminToken,
-            idPengajuan: state.selectedDetail.idPengajuan,
-            status,
-            note
-          },
-          file
-        });
+function renderAdminMap(item) {
+  const mapElement = $("adminMap");
+  if (!mapElement || typeof L === "undefined") return;
 
-        showMessage(message, "success", "Permintaan pembaruan status dan unggah surat sudah dikirim ke backend.");
-        window.setTimeout(loadAdminData, 1500);
-      } else {
-        const response = await jsonp("updateStatus", {
-          token: state.adminToken,
-          idPengajuan: state.selectedDetail.idPengajuan,
-          status,
-          note
-        });
-
-        if (!response?.success) throw new Error(response?.message || "Gagal memperbarui status.");
-        showMessage(message, "success", "Status berhasil diperbarui dan notifikasi diproses.");
-        await loadAdminData();
-      }
-
-      clearFileInput("suratPertimbangan");
-    } catch (error) {
-      console.error(error);
-      showMessage(message, "error", error.message);
-    } finally {
-      setButtonLoading(submitButton, false, "Update Status & Kirim Email");
-    }
+  if (!adminMap) {
+    adminMap = L.map("adminMap", {
+      zoomControl: true,
+      scrollWheelZoom: false,
+    }).setView(MALANG_CENTER, MALANG_ZOOM);
+    addBaseMap(adminMap);
   }
 
-  function renderAdminMap(item) {
-    const mapElement = byId("adminMap");
-    if (!mapElement || !window.L) return;
+  if (adminRouteLayer) {
+    adminMap.removeLayer(adminRouteLayer);
+    adminRouteLayer = null;
+  }
 
-    if (!state.adminMap) {
-      state.adminMap = L.map(mapElement, {
-        zoomControl: true,
-        scrollWheelZoom: true
-      }).setView(MALANG_CENTER, 13);
+  const coordinates = parseCoordinates(item.koordinatRuas);
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 20,
-        attribution: "&copy; OpenStreetMap contributors"
-      }).addTo(state.adminMap);
-
-      state.adminLayerGroup = L.layerGroup().addTo(state.adminMap);
-    }
-
-    state.adminMap.invalidateSize();
-    state.adminLayerGroup.clearLayers();
-
-    const coordinates = parseCoordinates(item.koordinatRuas);
-    if (coordinates.length < 2) {
-      state.adminMap.setView(MALANG_CENTER, 13);
-      return;
-    }
-
-    const line = L.polyline(coordinates, {
+  if (coordinates.length >= 2) {
+    adminRouteLayer = L.polyline(coordinates, {
       color: "#ef3340",
-      weight: 8,
+      weight: 6,
       opacity: 0.95,
-      lineCap: "round",
-      lineJoin: "round"
-    }).addTo(state.adminLayerGroup);
+    }).addTo(adminMap);
 
-    L.circleMarker(coordinates[0], {
-      radius: 7,
-      color: "#ffffff",
-      weight: 3,
-      fillColor: "#51d26b",
-      fillOpacity: 1
-    }).addTo(state.adminLayerGroup).bindTooltip("Titik awal");
-
-    L.circleMarker(coordinates[coordinates.length - 1], {
-      radius: 7,
-      color: "#ffffff",
-      weight: 3,
-      fillColor: "#ef3340",
-      fillOpacity: 1
-    }).addTo(state.adminLayerGroup).bindTooltip("Titik akhir");
-
-    state.adminMap.fitBounds(line.getBounds(), { padding: [40, 40] });
+    adminMap.fitBounds(adminRouteLayer.getBounds(), { padding: [28, 28] });
+  } else {
+    adminMap.setView(MALANG_CENTER, MALANG_ZOOM);
   }
 
-  /* ========================================================
-     API AND FILES
-     ======================================================== */
+  window.setTimeout(() => adminMap.invalidateSize(), 120);
+}
 
-  async function postToAppsScript(body) {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 45000);
+function parseCoordinates(raw) {
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
 
-    try {
-      await fetch(API_URL, {
-        method: "POST",
-        mode: "no-cors",
-        redirect: "follow",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8"
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-    } catch (error) {
-      if (error.name === "AbortError") throw new Error("Waktu pengiriman habis. Periksa koneksi dan deployment Apps Script.");
-      throw error;
-    } finally {
-      window.clearTimeout(timeout);
-    }
-  }
-
-  function jsonp(action, params = {}) {
-    if (!isApiReady()) return Promise.reject(new Error("API_URL belum diisi di script.js."));
-
-    return new Promise((resolve, reject) => {
-      const callbackName = `sipintas_cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const script = document.createElement("script");
-      let settled = false;
-
-      const timeout = window.setTimeout(() => {
-        cleanup();
-        reject(new Error("Request timeout. Periksa URL dan hak akses Web App Apps Script."));
-      }, 20000);
-
-      window[callbackName] = (data) => {
-        settled = true;
-        cleanup();
-        resolve(data);
-      };
-
-      function cleanup() {
-        window.clearTimeout(timeout);
-        delete window[callbackName];
-        script.remove();
-      }
-
-      const url = new URL(API_URL);
-      url.searchParams.set("action", action);
-      url.searchParams.set("callback", callbackName);
-      Object.entries(params).forEach(([key, value]) => {
-        url.searchParams.set(key, value == null ? "" : String(value));
-      });
-
-      script.onerror = () => {
-        if (settled) return;
-        cleanup();
-        reject(new Error("Gagal menghubungi Apps Script. Periksa deployment dan akses Web App."));
-      };
-
-      script.src = url.toString();
-      document.body.appendChild(script);
-    });
-  }
-
-  function validateFile(file, required = true) {
-    if (!file) return required ? "Dokumen wajib dipilih." : "";
-
-    const extension = getFileExtension(file.name);
-    if (!ALLOWED_EXTENSIONS.includes(extension)) {
-      return "Format dokumen harus PDF, DOC, atau DOCX.";
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      return "Ukuran dokumen maksimal 8 MB.";
-    }
-    return "";
-  }
-
-  function fileToPayload(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || "");
-        const commaIndex = result.indexOf(",");
-        if (commaIndex < 0) {
-          reject(new Error("Berkas tidak dapat dibaca."));
-          return;
+    return parsed
+      .map((point) => {
+        if (Array.isArray(point) && point.length >= 2) {
+          return [Number(point[0]), Number(point[1])];
         }
-        resolve({
-          name: sanitizeFileName(file.name),
-          mimeType: file.type || mimeTypeFromExtension(getFileExtension(file.name)),
-          size: file.size,
-          base64: result.slice(commaIndex + 1)
-        });
-      };
-      reader.onerror = () => reject(new Error("Berkas gagal dibaca oleh browser."));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  /* ========================================================
-     HELPERS
-     ======================================================== */
-
-  function byId(id) {
-    return document.getElementById(id);
-  }
-
-  function getValue(id) {
-    const element = byId(id);
-    return element ? String(element.value || "").trim() : "";
-  }
-
-  function setValue(id, value) {
-    const element = byId(id);
-    if (element) element.value = value == null ? "" : String(value);
-  }
-
-  function setText(id, value) {
-    const element = byId(id);
-    if (element) element.textContent = String(value ?? "");
-  }
-
-  function isChecked(id) {
-    return Boolean(byId(id)?.checked);
-  }
-
-  function getSelectedFile(id) {
-    return byId(id)?.files?.[0] || null;
-  }
-
-  function clearFileInput(id) {
-    const input = byId(id);
-    if (input) {
-      input.value = "";
-      input.setCustomValidity("");
-    }
-  }
-
-  function onlyDigits(value) {
-    return String(value || "").replace(/\D/g, "");
-  }
-
-  function isValidTime24(value) {
-    return /^([01]\d|2[0-3])\.[0-5]\d$/.test(value);
-  }
-
-  function timeToMinutes(value) {
-    const [hours, minutes] = String(value).split(".").map(Number);
-    return hours * 60 + minutes;
-  }
-
-  function getFileExtension(fileName) {
-    return String(fileName || "").split(".").pop().toLowerCase();
-  }
-
-  function sanitizeFileName(fileName) {
-    return String(fileName || "dokumen")
-      .replace(/[^a-zA-Z0-9._-]/g, "_")
-      .slice(0, 120);
-  }
-
-  function mimeTypeFromExtension(extension) {
-    const mimeTypes = {
-      pdf: "application/pdf",
-      doc: "application/msword",
-      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    };
-    return mimeTypes[extension] || "application/octet-stream";
-  }
-
-  function showMessage(element, type, text) {
-    if (!element) return;
-    element.className = `form-message show ${type}`;
-    element.textContent = text;
-  }
-
-  function clearMessage(element) {
-    if (!element) return;
-    element.className = "form-message";
-    element.textContent = "";
-  }
-
-  function setButtonLoading(button, loading, text) {
-    if (!button) return;
-    button.disabled = loading;
-    button.textContent = text;
-  }
-
-  function setSelectValue(id, value) {
-    const select = byId(id);
-    if (!select) return;
-
-    const exists = [...select.options].some((option) => option.value === value);
-    if (!exists && value) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = value;
-      select.appendChild(option);
-    }
-    select.value = value;
-  }
-
-  function renderDetailRows(container, rows) {
-    if (!container) return;
-    container.innerHTML = `<div class="detail-list">${rows
-      .map(([label, value, type]) => {
-        let renderedValue = escapeHtml(value || "-");
-        if (type === "link" && isSafeHttpUrl(value)) {
-          renderedValue = `<a href="${escapeAttr(value)}" target="_blank" rel="noopener noreferrer">Buka dokumen</a>`;
+        if (point && point.lat !== undefined && (point.lng !== undefined || point.lon !== undefined)) {
+          return [Number(point.lat), Number(point.lng ?? point.lon)];
         }
-        return `<div><span>${escapeHtml(label)}</span><span>${renderedValue}</span></div>`;
+        return null;
       })
-      .join("")}</div>`;
+      .filter((point) => point && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  } catch (_error) {
+    return [];
+  }
+}
+
+async function handleStatusUpdate(event) {
+  event.preventDefault();
+  clearMessage($("statusMessage"));
+
+  if (!selectedApplication) {
+    showMessage($("statusMessage"), "Pilih data pengajuan terlebih dahulu.", "error");
+    return;
   }
 
-  function parseCoordinates(value) {
-    try {
-      const coordinates = Array.isArray(value) ? value : JSON.parse(value || "[]");
-      if (!Array.isArray(coordinates)) return [];
-      return coordinates.filter((point) =>
-        Array.isArray(point) && point.length >= 2 && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))
-      );
-    } catch (error) {
-      return [];
+  const token = getAdminToken();
+  if (!token) {
+    logoutAdmin("Session admin tidak tersedia. Silakan login ulang.");
+    return;
+  }
+
+  const status = valueOf("updateStatus");
+  const note = valueOf("adminNote");
+  const file = $("suratPertimbangan")?.files?.[0] || null;
+
+  if (
+    status === "Pertimbangan Izin dapat diterbitkan" &&
+    !file &&
+    !selectedApplication.suratPertimbanganUrl
+  ) {
+    showMessage(
+      $("statusMessage"),
+      "Surat pertimbangan wajib diunggah sebelum menetapkan status dapat diterbitkan.",
+      "error"
+    );
+    focusElement("suratPertimbangan");
+    return;
+  }
+
+  if (file) {
+    const validation = validateFile(file, false);
+    if (!validation.valid) {
+      showMessage($("statusMessage"), validation.message, "error");
+      return;
     }
   }
 
-  function isSafeHttpUrl(value) {
-    try {
-      const url = new URL(String(value || ""));
-      return url.protocol === "http:" || url.protocol === "https:";
-    } catch (error) {
-      return false;
+  const button = $("statusSubmitBtn");
+  const originalText = button.textContent;
+  const idPengajuan = selectedApplication.idPengajuan;
+
+  try {
+    setButtonLoading(button, true, "Memperbarui...");
+
+    const filePayload = file ? await fileToPayload(file) : null;
+    const result = await postJson({
+      action: "updateStatusWithFile",
+      payload: {
+        token,
+        idPengajuan,
+        status,
+        note,
+      },
+      file: filePayload,
+    });
+
+    if (!result || !result.success) {
+      const message = result?.message || "Status gagal diperbarui.";
+      if (isSessionError(message)) {
+        logoutAdmin(message);
+        return;
+      }
+      throw new Error(message);
     }
-  }
 
-  function isApiReady() {
-    return Boolean(API_URL && /^https:\/\/script\.google\.com\/macros\/s\//.test(API_URL));
-  }
+    await loadAdminData({ preserveDetailId: idPengajuan });
 
-  function createClientRequestId() {
-    const now = new Date();
-    const date = [
-      now.getFullYear(),
-      String(now.getMonth() + 1).padStart(2, "0"),
-      String(now.getDate()).padStart(2, "0")
-    ].join("");
-    const time = [
-      String(now.getHours()).padStart(2, "0"),
-      String(now.getMinutes()).padStart(2, "0"),
-      String(now.getSeconds()).padStart(2, "0")
-    ].join("");
-    const random = Math.random().toString(36).slice(2, 6).toUpperCase();
-    return `SIP-MLG-${date}-${time}-${random}`;
+    showMessage(
+      $("statusMessage"),
+      "Status berhasil diperbarui dan notifikasi email telah diproses.",
+      "success"
+    );
+  } catch (error) {
+    const message = friendlyError(error, "Status gagal diperbarui.");
+    if (isSessionError(message)) {
+      logoutAdmin(message);
+      return;
+    }
+    showMessage($("statusMessage"), message, "error");
+  } finally {
+    setButtonLoading(button, false, originalText);
   }
+}
 
-  function statusClass(status) {
-    if (status === STATUS.APPROVED || status === STATUS.DONE) return "good";
-    if (status === STATUS.PROCESS) return "warn";
-    if (status === STATUS.REJECTED) return "bad";
+function showAdminDashboard() {
+  const loginBox = $("adminLoginBox");
+  const dashboard = $("adminDashboard");
+  if (loginBox) loginBox.classList.add("hidden");
+  if (dashboard) dashboard.classList.remove("hidden");
+}
+
+function showAdminLogin() {
+  const loginBox = $("adminLoginBox");
+  const dashboard = $("adminDashboard");
+  if (loginBox) loginBox.classList.remove("hidden");
+  if (dashboard) dashboard.classList.add("hidden");
+}
+
+function logoutAdmin(message = "") {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  adminData = [];
+  selectedApplication = null;
+  showAdminLogin();
+  closeDetailPanel();
+
+  setText("kpiTotal", "0");
+  setText("kpiProcess", "0");
+  setText("kpiRecommended", "0");
+  setText("kpiRevision", "0");
+
+  const body = $("adminTableBody");
+  if (body) body.innerHTML = "";
+
+  if (message) {
+    showMessage($("adminLoginMessage"), message, "error");
+  } else {
+    clearMessage($("adminLoginMessage"));
+  }
+}
+
+function getAdminToken() {
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY) || "";
+}
+
+function isSessionError(message) {
+  const text = String(message || "").toLowerCase();
+  return text.includes("session admin") || text.includes("kedaluwarsa") || text.includes("login ulang");
+}
+
+/* ==========================================================
+   DETAIL HELPERS
+   ========================================================== */
+
+function buildDetailList(rows) {
+  return `<div class="detail-list">${rows
+    .map(([label, value]) => {
+      const renderedValue = value && value.__safeHtml
+        ? value.html
+        : escapeHtml(value === null || value === undefined || value === "" ? "-" : String(value));
+
+      return `<div><span>${escapeHtml(label)}</span><span>${renderedValue}</span></div>`;
+    })
+    .join("")}</div>`;
+}
+
+function buildSafeLink(url, label) {
+  const safe = safeHttpUrl(url);
+  if (!safe) return { __safeHtml: true, html: "-" };
+
+  return {
+    __safeHtml: true,
+    html: `<a href="${escapeAttribute(safe)}" target="_blank" rel="noopener noreferrer" style="color:#1267d8;text-decoration:underline;">${escapeHtml(label || "Buka dokumen")}</a>`,
+  };
+}
+
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch (_error) {
     return "";
   }
+}
 
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+function formatRouteLength(item) {
+  const meters = Number(item.panjangMeter || 0);
+  const km = item.panjangKm || (meters ? (meters / 1000).toFixed(3) : "");
+
+  if (!meters && !km) return "-";
+  return `${meters ? formatNumber(meters) + " meter" : "-"}${km ? ` / ${km} km` : ""}`;
+}
+
+function formatDisplayDate(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return raw || "-";
+  return `${match[3]}-${match[2]}-${match[1]}`;
+}
+
+/* ==========================================================
+   UI HELPERS
+   ========================================================== */
+
+function valueOf(id) {
+  const element = $(id);
+  return element ? String(element.value || "").trim() : "";
+}
+
+function setText(id, value) {
+  const element = $(id);
+  if (element) element.textContent = String(value ?? "");
+}
+
+function showMessage(element, message, type = "success") {
+  if (!element) return;
+  element.textContent = message;
+  element.classList.remove("success", "error");
+  element.classList.add("show", type === "error" ? "error" : "success");
+}
+
+function clearMessage(element) {
+  if (!element) return;
+  element.textContent = "";
+  element.classList.remove("show", "success", "error");
+}
+
+function setButtonLoading(button, loading, text) {
+  if (!button) return;
+  button.disabled = Boolean(loading);
+  button.setAttribute("aria-busy", String(Boolean(loading)));
+  if (text !== undefined) button.textContent = text;
+}
+
+function focusElement(id) {
+  const element = $(id);
+  if (!element) return;
+
+  if (typeof element.scrollIntoView === "function") {
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  function escapeAttr(value) {
-    return escapeHtml(value).replace(/`/g, "&#096;");
+  if (typeof element.focus === "function" && !["DIV", "SECTION", "ASIDE"].includes(element.tagName)) {
+    window.setTimeout(() => element.focus(), 250);
   }
+}
 
-  function debounce(callback, wait) {
-    let timeout;
-    return (...args) => {
-      window.clearTimeout(timeout);
-      timeout = window.setTimeout(() => callback(...args), wait);
-    };
-  }
-})();
+function formatNumber(value) {
+  return new Intl.NumberFormat("id-ID").format(Number(value) || 0);
+}
+
+function friendlyError(error, fallback) {
+  if (!error) return fallback;
+  if (typeof error === "string") return error;
+  return error.message || fallback;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#096;");
+}
