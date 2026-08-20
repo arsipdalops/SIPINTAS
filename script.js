@@ -6,6 +6,8 @@
 
 "use strict";
 
+console.info("SIPINTAS: form pengajuan versi bebas kosong aktif - 20260820-2344");
+
 const API_URL =
   "https://script.google.com/macros/s/AKfycbwL3hQtC0kpRJCbLyX495grv-e3uHWgQcd9qzYtdvB9fdB8ifPMucJ1L8nehxmfUhTH/exec";
 
@@ -305,15 +307,8 @@ function initApplicationForm() {
     event.preventDefault();
     clearMessage($("formMessage"));
 
-    if (!form.reportValidity()) return;
-
-    const validation = validateApplicationForm();
-    if (!validation.valid) {
-      showMessage($("formMessage"), validation.message, "error");
-      focusElement(validation.elementId);
-      return;
-    }
-
+    // Form pengajuan sengaja boleh dikirim walaupun seluruh kolom kosong.
+    // Tidak menjalankan validasi HTML maupun validasi frontend.
     const submitButton = $("submitBtn");
     const originalText = submitButton.textContent;
 
