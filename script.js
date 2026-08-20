@@ -5,13 +5,6 @@
 (() => {
   "use strict";
 
-  // Cegah script SIPINTAS berjalan dua kali (mis. akibat cache/duplikasi tag script).
-  if (window.__SIPINTAS_APP_INITIALIZED__) {
-    console.warn("SIPINTAS: script sudah pernah diinisialisasi. Inisialisasi kedua dibatalkan.");
-    return;
-  }
-  window.__SIPINTAS_APP_INITIALIZED__ = true;
-
   const API_URL = "https://script.google.com/macros/s/AKfycbwyvni_bpU0x1ocK9JhS1jBIZIQE3x0w8-A-9P1GejcyzJReNJyhDvejTPwyEhQysP8/exec";
   const MALANG_CENTER = [-7.96662, 112.632632];
   const ADMIN_TOKEN_KEY = "sipintas_admin_token";
@@ -42,7 +35,6 @@
     initNavigation();
     initPublicMap();
     initApplicationForm();
-    checkBackendHealth();
     initAdmin();
   }
 
@@ -80,19 +72,6 @@
   function initPublicMap() {
     const mapElement = byId("map");
     if (!mapElement) return;
-
-    // Jika map sudah dibuat oleh instance script yang sama, cukup perbarui ukuran.
-    if (state.publicMap) {
-      window.setTimeout(() => state.publicMap.invalidateSize(), 50);
-      return;
-    }
-
-    // Leaflet menandai container yang sudah pernah diinisialisasi dengan _leaflet_id.
-    // Guard ini mencegah error "Map container is already initialized".
-    if (mapElement._leaflet_id) {
-      console.warn("SIPINTAS: container peta sudah diinisialisasi, pembuatan map kedua dibatalkan.");
-      return;
-    }
 
     if (!window.L) {
       showMapFallback(mapElement, "Pustaka Leaflet gagal dimuat. Periksa koneksi internet dan urutan tag script.");
@@ -304,6 +283,10 @@
     const applicationForm = byId("applicationForm");
     if (!applicationForm) return;
 
+    // Form pengajuan dibuat fleksibel: field yang kosong tetap boleh dikirim.
+    // Validasi hanya dilakukan untuk nilai yang memang diisi pengguna.
+    applicationForm.noValidate = true;
+
     const nik = byId("nik");
     if (nik) {
       nik.addEventListener("input", (event) => {
@@ -334,6 +317,7 @@
     const documentInput = byId("dokumenPengajuan");
     if (documentInput) {
       documentInput.addEventListener("change", () => {
+        // Dokumen tidak wajib. Jika dipilih, format dan ukuran tetap diperiksa.
         const error = validateFile(documentInput.files[0], false);
         documentInput.setCustomValidity(error);
         if (error) documentInput.reportValidity();
@@ -370,31 +354,17 @@
     setButtonLoading(submitButton, true, "Mengirim Pengajuan...");
 
     try {
-      const file = await fileToPayload(documentFile);
+      const file = documentFile ? await fileToPayload(documentFile) : null;
       await postToAppsScript({
         action: "submit",
         payload,
         file
       });
 
-      // Karena POST Apps Script memakai no-cors, browser tidak dapat membaca response POST.
-      // Verifikasi dilakukan melalui endpoint JSONP checkSubmission.
-      const confirmation = await waitForSubmissionConfirmation(payload.idPengajuan);
-      if (!confirmation?.found) {
-        throw new Error(
-          "Permintaan sudah dikirim, tetapi penyimpanan ke Google Sheets belum dapat dikonfirmasi. " +
-          "Periksa menu Executions di Apps Script."
-        );
-      }
-
-      const emailInfo = payload.email
-        ? " Notifikasi email pemohon diproses oleh backend."
-        : " Email pemohon kosong, sehingga notifikasi ke pemohon tidak dikirim.";
-
       showMessage(
         formMessage,
         "success",
-        `Pengajuan berhasil tersimpan di Google Sheets. ID Pengajuan: ${payload.idPengajuan}.${emailInfo}`
+        `Permintaan pengajuan sudah dikirim. Simpan ID Pengajuan: ${payload.idPengajuan}. Periksa email pemohon untuk konfirmasi dari sistem.`
       );
 
       form.reset();
@@ -435,17 +405,12 @@
   }
 
   function validateApplicationPayload(payload, documentFile) {
-    // Semua field pengajuan publik boleh kosong.
-    // Jika diisi, format tertentu tetap diperiksa agar data tidak rusak.
-
+    // Semua field boleh kosong. Jika suatu field diisi, formatnya tetap diperiksa.
     if (payload.nik && !/^\d{16}$/.test(payload.nik)) {
       return "Jika NIK diisi, NIK harus berisi tepat 16 digit angka.";
     }
 
-    if (
-      payload.email &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)
-    ) {
+    if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
       return "Jika email diisi, format email pemohon harus valid.";
     }
 
@@ -454,9 +419,10 @@
     }
 
     if (payload.jamSelesai && !isValidTime24(payload.jamSelesai)) {
-      return "Jika jam selesai diisi, gunakan format 24 jam, contoh 21.00.";
+      return "Jika jam selesai diisi, gunakan format 24 jam, contoh 21.30.";
     }
 
+    // Karena form hanya memiliki satu tanggal kegiatan, bandingkan jam bila keduanya diisi.
     if (
       payload.jamMulai &&
       payload.jamSelesai &&
@@ -464,7 +430,14 @@
       isValidTime24(payload.jamSelesai) &&
       timeToMinutes(payload.jamSelesai) <= timeToMinutes(payload.jamMulai)
     ) {
-      return "Jika kedua jam diisi, jam selesai harus lebih besar daripada jam mulai.";
+      return "Jam selesai harus lebih besar daripada jam mulai.";
+    }
+
+    if (payload.estimasiPeserta) {
+      const peserta = Number(payload.estimasiPeserta);
+      if (!Number.isFinite(peserta) || peserta < 1) {
+        return "Jika estimasi peserta diisi, nilainya minimal 1.";
+      }
     }
 
     const fileError = validateFile(documentFile, false);
@@ -472,6 +445,7 @@
 
     return "";
   }
+
 
   /* ========================================================
      ADMIN
@@ -864,53 +838,6 @@
     });
   }
 
-  async function checkBackendHealth() {
-    const statusElement = byId("backendStatus");
-    if (!statusElement) return;
-
-    if (!isApiReady()) {
-      setBackendStatus("error", "Backend belum dikonfigurasi.");
-      return;
-    }
-
-    try {
-      const response = await jsonp("ping");
-      if (response?.success) {
-        setBackendStatus("success", "Backend terhubung.");
-      } else {
-        setBackendStatus("error", response?.message || "Backend merespons tetapi konfigurasi belum siap.");
-      }
-    } catch (error) {
-      console.error("Pemeriksaan backend gagal:", error);
-      setBackendStatus("error", "Backend tidak dapat dihubungi. Periksa deployment Apps Script.");
-    }
-  }
-
-  function setBackendStatus(type, text) {
-    const statusElement = byId("backendStatus");
-    if (!statusElement) return;
-    statusElement.className = `backend-status ${type}`;
-    statusElement.textContent = text;
-  }
-
-  async function waitForSubmissionConfirmation(idPengajuan) {
-    const attempts = 8;
-    for (let index = 0; index < attempts; index += 1) {
-      if (index > 0) await delay(900);
-      try {
-        const response = await jsonp("checkSubmission", { idPengajuan });
-        if (response?.success && response?.found) return response;
-      } catch (error) {
-        if (index === attempts - 1) throw error;
-      }
-    }
-    return { success: false, found: false };
-  }
-
-  function delay(milliseconds) {
-    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-  }
-
   function validateFile(file, required = true) {
     if (!file) return required ? "Dokumen wajib dipilih." : "";
 
@@ -925,8 +852,6 @@
   }
 
   function fileToPayload(file) {
-    if (!file) return Promise.resolve(null);
-
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
